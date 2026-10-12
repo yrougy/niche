@@ -88,9 +88,20 @@ Hypothèse initiale (le contexte draft hérite `moe_cache_size` et construit un 
 - Après accounting exact du pin : pinned 1987,78 MiB (cap RLIMIT−4), zéro warning à bank 5120 et 5632 ; `verify.sh` re-passé 100 % bit-identique.
 - `verify.sh` : **100 % bit-identique aux masters** (diff = 0 partout) après les trois correctifs.
 
-## Point 4 — chaleur vivante + swaps au lieu du seed statique (Strata : decay ×0,7/4 windows, gain>1,5, ≤96 swaps/round, ordre de couche +5,5-8,3 %)
+## Point 4 — chaleur vivante + swaps au lieu du seed statique (FAIT, 12/10/2026)
 
-Statut : **pas commencé**. Justifié par la mesure : hit rate s'effondre hors prompt du profil (28-38 % prompt B vs 48-57 % prompt A). La machinerie LRU par chaîne existe (`llama-moe-cache.cpp` `init_chains`/`touch`/`plan`) — brancher les compteurs live (`llama-moe-profile.cpp`) dessus.
+**Implémenté** : `--moe-cache-adapt N` (llama.cpp, `src/llama-moe-cache.cpp` `adapt_tier`). Re-rank de la tier épinglée d'un cache static+cpu_fallback tous les N tokens cachés (compteur **par groupe**, incrémenté sur la copie du slot map du premier layer du groupe). Classement par **moyenne mobile des compteurs live** : `heat = heat×3/4 + delta_fenêtre`, **prior initialisé aux counts du profil** (`load_profile` renvoie maintenant les counts bruts). Swap : l'expert promu est écrit dans le slot de l'expert démote (copie brute mmap→bank, `slots`/`cpu_map`/`key_of` mis à jour en place avant la copie du slot map → le batch voit un tier cohérent, pas de double-computation). Cap : `q/4` swaps/round/couche. Nécessite `--moe-cache-static` + `--moe-cache-cpu-fallback` (sinon WARN + désactivé). Les poids ne changent pas : seulement la résidence.
+
+**Pièges trouvés en mesurant** :
+1. delta brut de fenêtre (64 tokens, sans prior) → **churn** : 1253 swaps en un round, tg 32,7-34,5 vs baseline 39,3-39,7. Rejeté.
+2. Prior + EMA + fenêtre 512 → **zéro trigger** sur le bench apparié au profil, tg 38,97 ≈ baseline : **pas de régression** sur workload apparié. C'est le comportement voulu (le seed n'est jamais cassé par une fenêtre courte).
+3. Session longue hors profil (Kyoto, 1000 tokens, bank 1024, ADAPT=128) : hit **9,75 % → 26,43 %** (×2,7), tg **15,93 → 17,3-17,5 (+9 %)**, swaps convergents (94 → 2 → 1 par round). Le prior décroît (×0,75/round) et se fait override par la chaleur persistante en ~4-5 fenêtres.
+
+**Déterminisme** : texte identique entre deux runs adapt-on (seuls le spinner et les t/s diffèrent). La différence adapt-on vs adapt-off = différence numérique CPU-vs-GPU sur les experts non résidents — inhérente au cpu_fallback, pas à l'adapt (verify.sh n'a toujours couvert que les chemins tout-GPU).
+
+**Comparaison Strata** : Strata decay ×0,7 / gain>1,5 / ≤96 swaps/round ; ici ×0,75 / cap q/4 par couche / pas de seuil de gain. Même esprit, paramètres différents.
+
+**Outils** : `bench.sh` accepte `ADAPT=` et `VERB=1` (les logs INFO de la lib llama sont masqués sans `-v` — c'est un piège de lecture des mesures : « swaps = 0 » était un artefact de log level).
 
 ## Point 5 — gratuit : taskset (Strata +10 % decode), route prior (opt-in qualité)
 
@@ -136,6 +147,6 @@ Pipeline CPU∥GPU (−7 %), foresight slots, VMM (Turing+), batched DMA (CUDA 1
 
 ## Prochaine action immédiate
 
-Record actuel : **static 5632 mtp CTX 4096 seed prof3.csv = tg 41,5 / pp 511,5, hit 89,0 %** (+71 % vs off mtp 24,18). Points 1-3b, 5 et 6 terminés. Axes restants, par valeur attendue : (1) **profil réaliste pour le déploiement** — `profile.sh` rejoue le trafic du bench, hit 89 % = plafond apparié au bench ; pour servir autre chose, re-générer le seed sur le trafic réel (ce que fait Strata : profiler l'usage). (2) **point 4 chaleur vivante** — l'effondrement hors bench (hit 28-57 % sur d'autres prompts) est le vrai terrain de l'adaptive tier (decay ×0,7/4 rondes, gain>1,5, ≤96 swaps) ; les compteurs live doivent venir du cache lui-même (`copy_experts` voit déjà les ids), pas du hook de profil incompatible avec le cache. (3) **pcie-frac auto** jamais testé : partager les misses entre CPU et upload d'après le temps CPU mesuré (`share = L/(L+1,85R)`), le port n'a que les modes binaires fb/static. (4) tail-skip re-mesuré avec le nouveau seed (faible espoir en statique).
+Record actuel : **static 5632 mtp CTX 4096 seed prof3.csv = tg 41,5 / pp 511,5, hit 89,0 %** (+71 % vs off mtp 24,18). Points 1-3b, 4, 5 et 6 terminés. Axes restants, par valeur attendue : (1) **profil réaliste pour le déploiement** — `profile.sh` rejoue le trafic du bench, hit 89 % = plafond apparié au bench ; pour servir autre chose, re-générer le seed sur le trafic réel (ce que fait Strata : profiler l'usage) — et `--moe-cache-adapt 512+` comme filet live (×2,7 hit / +9 % tg mesurés sur session longue hors profil, sans régression sur workload apparié). (2) **pcie-frac auto** jamais testé : partager les misses entre CPU et upload d'après le temps CPU mesuré (`share = L/(L+1,85R)`), le port n'a que les modes binaires fb/static. (3) tail-skip re-mesuré avec le nouveau seed (faible espoir en statique). (4) **quant par expert pilotée par profil** : mise en attente — verdict complet dans la mémoire `o35-per-expert-quant-feasibility` (requant vers le haut depuis le GGUF = zéro gain de qualité ; la vraie version exige un pack offline depuis une source Q8_0 — projet qualité, pas tg).
 
 **Commités (12/10/2026)** : llama.cpp `experimental/ornith-expert-cache` → `f3088e5f6` (trous mmap dans populate/pin/release) + `ac38254f8` (tail-skip + scratch 4 + budget RAM/RLIMIT du complément) ; workspace o35 `master` → `d4589af` (WORKLOG, bench.sh, serve.sh, prof2.csv, chat.sh, try.sh). `tools/serve.sh` : serveur avant-plan 0.0.0.0:8002 config optimale, CTX en variable d'entrée, bank dérivé du CTX (5632 ≤4096, 5120 ≤8192, décru au-delà) — validé (health 200).

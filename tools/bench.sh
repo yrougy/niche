@@ -13,7 +13,10 @@
 # Env : PORT (défaut 8002), CACHE_MIB (taille du bank GPU, défaut 4096), COLD=1 (vide le
 # page cache avant, si root/sudo), CTX (défaut 8192), PP_N (tokens du test pp, défaut 2048),
 # TG_N (tokens du test tg, défaut 128), DEPTH (tokens de remplissage KV avant mesure, défaut 0),
-# TAIL_SKIP (avec fb : skip les picks non résidents au rang ≥ N, défaut 0 = désactivé).
+#   TAIL_SKIP (avec fb : skip les picks non résidents au rang ≥ N, défaut 0 = désactivé).
+#   ADAPT (avec fb : re-rank la tier résidente depuis les compteurs live tous les N tokens, défaut 0 = désactivé).
+#   VERB=1 (tous modes : lance llama-server avec -v — sans ça les logs INFO de la lib llama (adapt_tier, hit rate,
+#   CPU fallback) sont masqués dans server.log ; les stats hit rate restent extraites de stats.csv).
 set -u
 
 LLAMA=/data/o35/llama.cpp
@@ -30,6 +33,8 @@ TG_N=${TG_N:-128}
 THREADS=${THREADS:-8}
 DEPTH=${DEPTH:-0}
 TAIL_SKIP=${TAIL_SKIP:-0}
+ADAPT=${ADAPT:-0}
+VERB=${VERB:-0}
 SPEC=""
 [ "${2:-}" = mtp ] && SPEC="--spec-type draft-mtp"
 PORT=${PORT:-8002}
@@ -40,7 +45,7 @@ fail() { echo "ERREUR : $*" >&2; exit 1; }
 [ -f "$PROFILE" ] || fail "profil $PROFILE absent"
 
 case "$MODE" in
-    fb)     BASE="-ngl 99 -cmoe"; CACHE="--moe-cache-mib $CACHE_MIB --moe-profile $PROFILE --moe-cache-static --moe-cache-cpu-fallback --moe-cache-pin-mib 1990"; [ "$TAIL_SKIP" != 0 ] && CACHE="$CACHE --moe-cache-tail-skip $TAIL_SKIP" ;;
+    fb)     BASE="-ngl 99 -cmoe"; CACHE="--moe-cache-mib $CACHE_MIB --moe-profile $PROFILE --moe-cache-static --moe-cache-cpu-fallback --moe-cache-pin-mib 1990"; [ "$TAIL_SKIP" != 0 ] && CACHE="$CACHE --moe-cache-tail-skip $TAIL_SKIP"; [ "$ADAPT" != 0 ] && CACHE="$CACHE --moe-cache-adapt $ADAPT" ;;
     static) BASE="-ngl 99 -cmoe"; CACHE="--moe-cache-mib $CACHE_MIB --moe-profile $PROFILE --moe-cache-static --moe-cache-pin-mib 1990"; [ "$TAIL_SKIP" != 0 ] && CACHE="$CACHE --moe-cache-tail-skip $TAIL_SKIP" ;;
     lru)    BASE="-ngl 99 -cmoe"; CACHE="--moe-cache-mib $CACHE_MIB --moe-profile $PROFILE"; [ "$TAIL_SKIP" != 0 ] && CACHE="$CACHE --moe-cache-tail-skip $TAIL_SKIP" ;;
     off)    BASE=""; CACHE="" ;;
@@ -72,7 +77,8 @@ trap cleanup EXIT INT TERM
 
 echo "=== démarrage llama-server (mode : $MODE${TAIL_SKIP:+ tail-skip $TAIL_SKIP}${SPEC:++ MTP}) ==="
 cd "$LLAMA"
-"$BIN" -m "$MODEL" $BASE $CACHE $SPEC --host 127.0.0.1 --port "$PORT" \
+VFLAG=""; [ "$VERB" = 1 ] && VFLAG="-v"
+"$BIN" -m "$MODEL" $BASE $CACHE $SPEC $VFLAG --host 127.0.0.1 --port "$PORT" \
     -c "$CTX" -fa on --cache-type-k q4_0 --cache-type-v q4_0 -ub 512 \
     -t "$THREADS" --threads-batch "$THREADS" --parallel 1 --temp 0 -s 42 \
     --moe-stats "$OUT/stats.csv" > "$LOG" 2>&1 &
