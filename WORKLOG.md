@@ -96,9 +96,39 @@ Statut : **pas commencé**. Justifié par la mesure : hit rate s'effondre hors p
 
 Statut : **TESTÉ — sans effet sur la config recommandée**. `taskset -c 0-3` (cœurs physiques seuls, i7-4790 : siblings (0,4)(1,5)(2,6)(3,7)) + `THREADS=4` (nouvel env dans bench.sh) sur static 5632 mtp CTX 4096 : **tg 39,87 vs 39,81-39,86 sans taskset** (bruit). Explication : le scheduler place déjà les threads sur des cœurs physiques distincts, et le decode de cette config est GPU-bound (le CPU ne fait que les misses ~15 % et les uploads). Le gain taskset de Strata concernait un decode CPU-bound (mode fb) — hors config cible. À ne pas reprendre.
 
+## Point 6 — complétude du profil de routage (FAIT, 12/10/2026, nouvelle frontière de performance)
+
+**Diagnostic** : le hook `--moe-profile-output` marchait mais `prof2.csv` ne comptait que ~1 pick/token/couche (335184 sélections pour 8208 tokens, soit ~1047 tokens capturés) → le seed statique classait mal ~54 % des experts au bank 4096 (recouvrement top-112 ancien/nouveau : 45,8 %). De plus `--moe-profile-output` + cache actif = **GGML_ABORT** (`llama-moe-cache.cpp:1122`, « selected in the same split as their MoE cache lookup ») : les copies hôte du profil forcent un split CPU là où le lookup du cache a besoin des ids calculés dans un split antérieur. Tentative de déplacer le hook en fin de `build_moe_ffn` : échoue (le décalage casse la couche suivante). **Retenu** : le profil est ignoré quand le cache est actif (WARN dans `llama-context.cpp`), on profile en config off — le routage ne dépend pas de l'endroit où vivent les poids.
+
+**Outil** : `tools/profile.sh` — serveur en config off + `--moe-profile-output`, rejoue le trafic de bench.sh (warmup, pp 4096, tg 256×2), vérifie la complétude. `prof3.csv` : 4637 tokens × 8 picks × 40 couches, complet (couche 39 partielle = l'optimisation out_ids de la dernière couche, attendue).
+
+**Mesures (static + MTP, CTX 4096, même trafic)** :
+- bank 4096 : ancien seed hit 79,1 % tg 36,51 pp 405,7 → nouveau seed tg 36,33 pp 474,3 (tg inchangé : les misses en statique sont des lectures hôte sans fault, peu coûteuses en decode ; le gain est sur le pp)
+- **bank 5632 : nouveau record tg 41,48 / pp 511,51, hit 89,0 %** (vs ancien seed 39,8 / 446) — +4,2 % tg, +14,6 % pp vs l'ancien record
+- `verify.sh` : 100 % bit-identique après le correctif (le seed ne change pas les sorties, seulement la résidence)
+
+**Honnête sur la méthode** : `prof3.csv` est généré sur le trafic du bench → le seed est parfaitement apparié au benchmark. Pour un déploiement réel, `profile.sh` doit rejouer le trafic réel (c'est exactement ce que fait Strata : profiler l'usage, pas un prompt synthétique).
+
+**`tools/{bench,serve,chat}.sh` basculés sur prof3.csv** (défaut ; `PROFILE=` surchargeable).
+
+## Point 7 — montée en quant mesurée (FAIT, 12/10/2026)
+
+Contexte : le port déplace la limite de la VRAM (8 GiB) vers la RAM (15 GiB, MemAvailable ~11) + PCIe + disque rotatif. Test sur les quants locaux du même modèle (profils régénérés par quant — le routage dépend des poids ; `profile.sh` accepte maintenant `MODEL=` et un chemin absolu, `bench.sh` accepte `MODEL=`).
+
+| quant | taille | bank max testé | hit | tg | pp | acceptance MTP | majflt |
+|---|---|---|---|---|---|---|---|
+| UD-IQ2_M | 11,1 GiB | 5632 | 89,0 % | **41,48** | 511,5 | 0,42-0,59 | 0 |
+| UD-Q2_K_XL | 11,7 GiB | 5376 | 81,7 % | **40,27** | 486,2 | 0,65-0,68 | 5 |
+| UD-Q3_K_M | 15,9 GiB | 4608 | 68,0 % | **6,74** | 47,6 | 0,65-0,77 | 16 601 |
+
+- **Q3_K_M = mur confirmé** : le hot set par expert ×1,44 ne tient plus dans la RAM ; le tail chaud part en fautes disque (16 601 majflt) → decode à 6,7 t/s. Q3_K_S (16,4 GB, −4 %) bute au même mur — téléchargement interrompu à 10,3/16,4 GB (`curl -C - .../Qwen3.6-35B-A3B-UD-Q3_K_S.gguf` reprenable), inutile pour le test.
+- **Q2_K_XL = palier viable** : −2,9 % tg / −5 % pp vs IQ2_M pour un palier de qualité supérieur (bpw effectif plus élevé, classement unsloth). La compensation vient de l'**acceptance MTP 0,65-0,68 vs 0,42-0,59** (mean len 3,0 vs 2,1-2,8) : la tête draft est moins bruitée, donc moins de passes du modèle cible par token généré. Preuve mesurée de qualité supérieure, pas un argument bpw.
+- L'analyse a priori (Q3 ≈ 20-28 t/s) était **trop optimiste** : elle ignorait que le tail chaud hors RAM tombe sur le disque rotatif (~100-150 MB/s), pas sur la page cache. Le cliff est l'occupation RAM du hot set, pas la taille du fichier.
+- IQ3_M/Q3_K_S non testés (non locaux) : même taille que Q3_K_M ±5 %, même verdict.
+
 ## Frontière VRAM confirmée (bank max avec MTP)
 
-- 5632 + MTP à CTX 4096 : OK (record tg 39,8). 5888 + MTP : OOM CUDA en cours d'exécution (compute buffer, 0.05 s). 6144 + MTP : OOM au démarrage même à CTX 2048 — le KV n'est pas le facteur limitant (poids non-experts ~1,7 GiB + draft 262 MiB + compute buffers). **5632 = bank max avec MTP** ; sans MTP, 6144 tient (tg 33,4).
+- 5632 + MTP à CTX 4096 : OK (record tg 41,5 avec le seed prof3.csv). 5888 + MTP : OOM CUDA en cours d'exécution (compute buffer, 0.05 s). 6144 + MTP : OOM au démarrage même à CTX 2048 — le KV n'est pas le facteur limitant (poids non-experts ~1,7 GiB + draft 262 MiB + compute buffers). **5632 = bank max avec MTP** ; sans MTP, 6144 tient (tg 33,4).
 
 ## Rejetés (mesuré perdant chez Strata ou hors matériel)
 
@@ -106,6 +136,6 @@ Pipeline CPU∥GPU (−7 %), foresight slots, VMM (Turing+), batched DMA (CUDA 1
 
 ## Prochaine action immédiate
 
-Points 1-3b et 5 terminés ; record actuel : **static 5632 mtp CTX 4096 = tg 39,8 / pp 446** (+65 % vs off mtp 24,18). Reste, faible valeur : (1) rendre `max_batch_scratch` configurable — scratch 4 = exactement la taille d'un verify MTP (3 draft + 1), scratch 8 n'apporterait rien avec `nextn_predict_layers=1` et parallel 1 : **à moins de besoins de batch plus gros, classer sans suite** ; (2) point 4 chaleur vivante : priorité réduite (le scratch LRU fait déjà l'adaptation live, hit 85,7 % mesuré).
+Record actuel : **static 5632 mtp CTX 4096 seed prof3.csv = tg 41,5 / pp 511,5, hit 89,0 %** (+71 % vs off mtp 24,18). Points 1-3b, 5 et 6 terminés. Axes restants, par valeur attendue : (1) **profil réaliste pour le déploiement** — `profile.sh` rejoue le trafic du bench, hit 89 % = plafond apparié au bench ; pour servir autre chose, re-générer le seed sur le trafic réel (ce que fait Strata : profiler l'usage). (2) **point 4 chaleur vivante** — l'effondrement hors bench (hit 28-57 % sur d'autres prompts) est le vrai terrain de l'adaptive tier (decay ×0,7/4 rondes, gain>1,5, ≤96 swaps) ; les compteurs live doivent venir du cache lui-même (`copy_experts` voit déjà les ids), pas du hook de profil incompatible avec le cache. (3) **pcie-frac auto** jamais testé : partager les misses entre CPU et upload d'après le temps CPU mesuré (`share = L/(L+1,85R)`), le port n'a que les modes binaires fb/static. (4) tail-skip re-mesuré avec le nouveau seed (faible espoir en statique).
 
 **Commités (12/10/2026)** : llama.cpp `experimental/ornith-expert-cache` → `f3088e5f6` (trous mmap dans populate/pin/release) + `ac38254f8` (tail-skip + scratch 4 + budget RAM/RLIMIT du complément) ; workspace o35 `master` → `d4589af` (WORKLOG, bench.sh, serve.sh, prof2.csv, chat.sh, try.sh). `tools/serve.sh` : serveur avant-plan 0.0.0.0:8002 config optimale, CTX en variable d'entrée, bank dérivé du CTX (5632 ≤4096, 5120 ≤8192, décru au-delà) — validé (health 200).

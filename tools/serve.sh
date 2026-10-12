@@ -9,7 +9,7 @@ CTX=${CTX:-4096}   # ← taille du contexte : à éditer ici, ou CTX=8192 tools/
 LLAMA=/data/o35/llama.cpp
 BIN=$LLAMA/build/bin/llama-server
 MODEL=/data/models/unsloth/Qwen3.6-35B-A3B-UD-IQ2_M.gguf
-PROFILE=/data/o35/o35/tools/prof2.csv
+PROFILE=/data/o35/o35/tools/prof3.csv
 HOST=0.0.0.0
 PORT=8002
 

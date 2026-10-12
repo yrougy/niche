@@ -18,9 +18,9 @@ set -u
 
 LLAMA=/data/o35/llama.cpp
 BIN=$LLAMA/build/bin/llama-server
-MODEL=/data/models/unsloth/Qwen3.6-35B-A3B-UD-IQ2_M.gguf
+MODEL=${MODEL:-/data/models/unsloth/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}
 HERE=/data/o35/o35
-PROFILE=$HERE/tools/prof2.csv
+PROFILE=${PROFILE:-$HERE/tools/prof3.csv}
 OUT=/tmp/bench
 MODE=${1:-fb}
 CACHE_MIB=${CACHE_MIB:-4096}
