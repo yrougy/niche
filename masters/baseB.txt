@@ -1,0 +1,61 @@
+
+
+Loading model... |-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\ 
+
+▄▄ ▄▄
+██ ██
+██ ██  ▀▀█▄ ███▄███▄  ▀▀█▄    ▄████ ████▄ ████▄
+██ ██ ▄█▀██ ██ ██ ██ ▄█▀██    ██    ██ ██ ██ ██
+██ ██ ▀█▄██ ██ ██ ██ ▀█▄██ ██ ▀████ ████▀ ████▀
+                                    ██    ██
+                                    ▀▀    ▀▀
+
+build      : b11556-1a6b4a0b0
+model      : /data/models/unsloth/Qwen3.6-35B-A3B-UD-IQ2_M.gguf
+ftype      : IQ2_M - 2.7 bpw
+modalities : text
+
+available commands:
+  /exit or Ctrl+C     stop or exit
+  /regen              regenerate the last response
+  /clear              clear the chat history
+  /read <file>        add a text file
+  /glob <pattern>     add text files using globbing pattern
+
+
+
+> Q: Explain how a diesel engine works. A:
+
+[Start thinking]
+
+Here's a thinking process:
+
+1.  **Understand User Input:**
+   - **Question:** "Explain how a diesel engine works."
+   - **Format:** Q&A style, expecting a clear, concise, and accurate explanation.
+
+2.  **Identify Key Concepts of Diesel Engines:**
+   - Internal combustion engine
+   - Compression ignition (no spark plugs)
+   - Four-stroke cycle (intake, compression, power, exhaust)
+   - Diesel fuel characteristics (higher energy density, ignites under high pressure/temperature)
+   - Components: pistons, cylinders, crankshaft, fuel injectors, turbocharger (often), air intake, exhaust system
+   - Efficiency and torque characteristics
+   - Differences from gasoline engines
+
+3.  **Structure the Explanation:**
+   - Introduction: What is a diesel engine? Key distinguishing feature (compression ignition).
+   - The Four-Stroke Cycle (step-by-step)
+   - Key Components & How They Work Together
+   - Why Diesel is Efficient/Torque-rich
+   - Brief comparison to gasoline (optional but helpful)
+   - Conclusion: Summary
+
+4.  **Draft - Section by Section:**
+   *(Introduction)* A diesel engine is a
+
+[ Prompt: 41,0 t/s | Generation: 23,8 t/s ]
+
+> 
+
+Exiting...

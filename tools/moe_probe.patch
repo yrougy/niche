@@ -1,0 +1,224 @@
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index f17dbb88a..9257c624a 100644
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -1530,6 +1530,10 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+         return nullptr;
+     }
+ 
++    if (getenv("LLAMA_MOE_PROBE")) {
++        llama_graph_moe_probe_print(res->get_gf(), ubatch.n_tokens);
++    }
++
+     ret = GGML_STATUS_SUCCESS;
+ 
+     return res;
+diff --git a/src/llama-graph.cpp b/src/llama-graph.cpp
+index dd61efdb6..45b403195 100644
+--- a/src/llama-graph.cpp
++++ b/src/llama-graph.cpp
+@@ -20,12 +20,97 @@
+ 
+ #include <cassert>
+ #include <cmath>
++#include <cstdio>
++#include <cstdlib>
+ #include <cstring>
++#include <map>
+ #include <numeric>
+ #include <sstream>
+ #include <string>
+ #include <unordered_set>
+ 
++// temporary diagnostic: GPU MoE cache slot result vs CPU result on the same host weights
++static bool moe_probe_enabled(void) {
++    static const bool on = getenv("LLAMA_MOE_PROBE") != nullptr;
++    return on;
++}
++
++void llama_graph_moe_probe_print(ggml_cgraph * gf, int n_tokens) {
++    if (!moe_probe_enabled() || gf == nullptr) {
++        return;
++    }
++
++    std::map<int, ggml_tensor *> gpu, cpu, ids;
++
++    for (int i = 0; i < ggml_graph_n_nodes(gf); i++) {
++        ggml_tensor * node = ggml_graph_node(gf, i);
++        const char * name = ggml_get_name(node);
++        int il = -1;
++        if (sscanf(name, "moe_probe_gpu_%d", &il) == 1) {
++            gpu[il] = node->src[1]; // the cpy destination, on the CPU
++        } else if (sscanf(name, "moe_probe_cpu_%d", &il) == 1) {
++            cpu[il] = node;
++        } else if (sscanf(name, "moe_probe_ids_%d", &il) == 1) {
++            ids[il] = node;
++        }
++    }
++
++    LLAMA_LOG_INFO("%s: scanning %d nodes, gpu=%zu cpu=%zu ids=%zu\n",
++            __func__, ggml_graph_n_nodes(gf), gpu.size(), cpu.size(), ids.size());
++
++    for (auto & kv : gpu) {
++        const int il = kv.first;
++        if (cpu.find(il) == cpu.end() || ids.find(il) == ids.end()) {
++            continue;
++        }
++
++        ggml_tensor * g = kv.second;
++        ggml_tensor * c = cpu[il];
++        ggml_tensor * m = ids[il];
++
++        const int n_used = (int) c->ne[1];
++        const int n_tok  = std::min((int) c->ne[2], n_tokens);
++        const int ne0    = (int) c->ne[0];
++
++        double max_abs = 0.0, max_rel = 0.0, max_g = 0.0, max_c = 0.0, sum_abs = 0.0;
++        long n_big = 0;
++        long n_cmp = 0;
++
++        for (int t = 0; t < n_tok; t++) {
++            for (int s = 0; s < n_used; s++) {
++                if (((const int32_t *) m->data)[t*n_used + s] != -1) {
++                    continue; // not resident: the CPU computed it, the GPU read the zero slot
++                }
++                const float * pg = (const float *) ((char *) g->data + s*g->nb[1] + t*g->nb[2]);
++                const float * pc = (const float *) ((char *) c->data + s*c->nb[1] + t*c->nb[2]);
++                for (int i = 0; i < ne0; i++) {
++                    const double d = fabs(pg[i] - pc[i]);
++                    const double v = fabs(pc[i]);
++                    if (d > max_abs) max_abs = d;
++                    if (v > 1e-3 && d/v > max_rel) max_rel = d/v;
++                    if (fabs(pg[i]) > max_g) max_g = fabs(pg[i]);
++                    if (v > max_c) max_c = v;
++                    sum_abs += d;
++                    if (d > 1e-4) n_big++;
++                    n_cmp++;
++                }
++            }
++        }
++
++        LLAMA_LOG_INFO("%s: layer %d rows %ld, max abs = %.6f, mean abs = %.6f, big %ld, max rel = %.8f, max gpu = %.6f, max cpu = %.6f\n",
++                __func__, il, n_cmp, max_abs, n_cmp ? sum_abs/n_cmp : 0.0, n_big, max_rel, max_g, max_c);
++
++        if (n_cmp > 0 && n_cmp < 8192) {
++            const float * pg0 = (const float *) ((char *) g->data + 0*g->nb[1]);
++            const float * pc0 = (const float *) ((char *) c->data + 0*c->nb[1]);
++            LLAMA_LOG_INFO("%s: layer %d g=%p c=%p ne[%ld,%ld,%ld] nb[%ld,%ld] gpu0=[%.6f %.6f %.6f %.6f] cpu0=[%.6f %.6f %.6f %.6f]\n",
++                    __func__, il, (void *) g->data, (void *) c->data,
++                    (long) c->ne[0], (long) c->ne[1], (long) c->ne[2], (long) c->nb[1], (long) c->nb[2],
++                    pg0[0], pg0[1], pg0[2], pg0[3], pc0[0], pc0[1], pc0[2], pc0[3]);
++        }
++    }
++}
++
+ // dedup helpers
+ 
+ static ggml_tensor * build_attn_inp_kq_mask(
+@@ -1618,12 +1703,34 @@ ggml_tensor * llm_graph_context::build_lora_mm_id(
+           ggml_tensor * ids,
+           ggml_tensor * w_s,
+           ggml_tensor * slots,
+-          ggml_tensor * ids_cpu) const {
++          ggml_tensor * ids_cpu,
++          int il) const {
+     // the experts in the MoE cache are selected by their slots
+     ggml_tensor * res = slots == nullptr ?
+         ggml_mul_mat_id(ctx0, w, cur, ids) :
+         ggml_mul_mat_id(ctx0, moe_cache->get_experts(w), cur, slots);
+ 
++    if (moe_probe_enabled() && slots != nullptr && ids_cpu != nullptr && il >= 0) {
++        char name[64];
++        ggml_tensor * gpu_out = ggml_cpy(ctx0, res,
++                ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, res->ne[0], res->ne[1], res->ne[2]));
++        ggml_backend_sched_set_tensor_backend(sched, gpu_out, backend_cpu);
++        snprintf(name, sizeof(name), "moe_probe_gpu_%d", il);
++        ggml_set_name(gpu_out, name);
++
++        ggml_tensor * cpu_out = ggml_mul_mat_id(ctx0, w, cur, ids);
++        ggml_backend_sched_set_tensor_backend(sched, cpu_out, backend_cpu);
++        snprintf(name, sizeof(name), "moe_probe_cpu_%d", il);
++        ggml_set_name(cpu_out, name);
++
++        // keep the probe buffers alive for the whole graph so the print can read them after compute
++        ggml_set_output(gpu_out);
++        ggml_set_output(cpu_out);
++
++        // the probe tensors must be consumed to be added to the graph: add 0 * (gpu + cpu) to res
++        res = ggml_add(ctx0, res, ggml_scale(ctx0, ggml_add(ctx0, gpu_out, cpu_out), 0.0f));
++    }
++
+     // the experts the cache does not hold are computed on the CPU, the GPU reads its zero slot for them
+     if (ids_cpu != nullptr) {
+         ggml_tensor * res_cpu = ggml_mul_mat_id(ctx0, w, cur, ids_cpu);
+@@ -2288,7 +2395,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
+ 
+     if (gate_up_exps) {
+         // merged gate_up path: one mul_mat_id, then split into gate and up views
+-        ggml_tensor * gate_up = build_lora_mm_id(gate_up_exps, cur, selected_experts, up_exps_s, slots, ids_cpu); // [n_ff*2, n_expert_used, n_tokens]
++        ggml_tensor * gate_up = build_lora_mm_id(gate_up_exps, cur, selected_experts, up_exps_s, slots, ids_cpu, il); // [n_ff*2, n_expert_used, n_tokens]
+         cb(gate_up, "ffn_moe_gate_up", il);
+ 
+         if (up_exps_s) {
+@@ -2307,7 +2414,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
+         cb(up, "ffn_moe_up", il);
+     } else {
+         // separate gate and up path
+-        up = build_lora_mm_id(up_exps, cur, selected_experts, up_exps_s, slots, ids_cpu); // [n_ff, n_expert_used, n_tokens]
++        up = build_lora_mm_id(up_exps, cur, selected_experts, up_exps_s, slots, ids_cpu, il); // [n_ff, n_expert_used, n_tokens]
+         cb(up, "ffn_moe_up", il);
+ 
+         if (up_exps_s) {
+@@ -2320,7 +2427,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
+         }
+ 
+         if (gate_exps) {
+-            cur = build_lora_mm_id(gate_exps, cur, selected_experts, gate_exps_s, slots, ids_cpu); // [n_ff, n_expert_used, n_tokens]
++            cur = build_lora_mm_id(gate_exps, cur, selected_experts, gate_exps_s, slots, ids_cpu, il); // [n_ff, n_expert_used, n_tokens]
+             cb(cur, "ffn_moe_gate", il);
+         } else {
+             cur = up;
+@@ -2421,7 +2528,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
+             GGML_ABORT("fatal error");
+     }
+ 
+-    experts = build_lora_mm_id(down_exps, cur, selected_experts, down_exps_s, slots, ids_cpu); // [n_embd, n_expert_used, n_tokens]
++    experts = build_lora_mm_id(down_exps, cur, selected_experts, down_exps_s, slots, ids_cpu, il); // [n_embd, n_expert_used, n_tokens]
+     if (arch == LLM_ARCH_MISTRAL4) {
+         // src1 can exceed F16 range
+         ggml_prec_set_src(experts, GGML_PREC_F32, 1);
+@@ -2522,6 +2629,12 @@ ggml_tensor * llm_graph_context::build_moe_cache_slots(
+         ggml_backend_sched_set_tensor_backend(sched, ids_cpu_rows, backend_cpu);
+         cb(ids_cpu_rows, "ffn_moe_ids_cpu", il);
+         *ids_cpu = ggml_reshape_2d(ctx0, ids_cpu_rows, selected_experts->ne[0], selected_experts->ne[1]);
++        if (moe_probe_enabled()) {
++            char name[64];
++            snprintf(name, sizeof(name), "moe_probe_ids_%d", il);
++            ggml_set_name(*ids_cpu, name);
++            ggml_set_output(*ids_cpu);
++        }
+     }
+ 
+     return ggml_reshape_2d(ctx0, slots, selected_experts->ne[0], selected_experts->ne[1]); // [n_expert_used, n_tokens]
+diff --git a/src/llama-graph.h b/src/llama-graph.h
+index 7c24c13e0..e0384095d 100644
+--- a/src/llama-graph.h
++++ b/src/llama-graph.h
+@@ -1105,7 +1105,8 @@ struct llm_graph_context {
+               ggml_tensor * ids,
+               ggml_tensor * w_s     = nullptr,
+               ggml_tensor * slots   = nullptr,
+-              ggml_tensor * ids_cpu = nullptr) const;
++              ggml_tensor * ids_cpu = nullptr,
++              int           il      = -1) const;
+ 
+     ggml_tensor * build_norm(
+              ggml_tensor * cur,
+@@ -1445,3 +1446,7 @@ struct llm_graph_context {
+ 
+ // TODO: better name
+ int32_t llama_relative_position_bucket(llama_pos x, llama_pos y, uint64_t n_buckets, bool bidirectional);
++
++// temporary diagnostic: compares the MoE cache slot result computed on the GPU against the same
++// experts computed on the CPU, for experts that are resident in the cache
++void llama_graph_moe_probe_print(ggml_cgraph * gf, int n_tokens);

@@ -1,0 +1,53 @@
+
+
+Loading model... |-\|/-\|/-\|/-\|/-\|/-\| 
+
+▄▄ ▄▄
+██ ██
+██ ██  ▀▀█▄ ███▄███▄  ▀▀█▄    ▄████ ████▄ ████▄
+██ ██ ▄█▀██ ██ ██ ██ ▄█▀██    ██    ██ ██ ██ ██
+██ ██ ▀█▄██ ██ ██ ██ ▀█▄██ ██ ▀████ ████▀ ████▀
+                                    ██    ██
+                                    ▀▀    ▀▀
+
+build      : b11552-23b0202a1
+model      : /data/models/unsloth/Qwen3.6-35B-A3B-UD-IQ2_M.gguf
+ftype      : IQ2_M - 2.7 bpw
+modalities : text
+
+available commands:
+  /exit or Ctrl+C     stop or exit
+  /regen              regenerate the last response
+  /clear              clear the chat history
+  /read <file>        add a text file
+  /glob <pattern>     add text files using globbing pattern
+
+
+
+> Q: What is the capital of France? A:
+
+[Start thinking]
+
+Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Question: "What is the capital of France?"
+   - Format: Q: [Question] A: [Expected Answer]
+   - Task: Provide the correct answer to the question.
+
+2.  **Identify Key Information:**
+   - Country: France
+   - Target: Capital city
+
+3.  **Retrieve Knowledge:**
+   - I know that the capital of France is Paris.
+   - This is a well-established, universally known fact.
+
+4.  **Formulate Answer:**
+   - Direct
+
+[ Prompt: 26,8 t/s | Generation: 17,9 t/s ]
+
+> 
+
+Exiting...

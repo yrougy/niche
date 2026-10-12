@@ -1,0 +1,39 @@
+
+
+Loading model... |-\|/-\|/-\|/-\|/-\|/-\| 
+
+▄▄ ▄▄
+██ ██
+██ ██  ▀▀█▄ ███▄███▄  ▀▀█▄    ▄████ ████▄ ████▄
+██ ██ ▄█▀██ ██ ██ ██ ▄█▀██    ██    ██ ██ ██ ██
+██ ██ ▀█▄██ ██ ██ ██ ▀█▄██ ██ ▀████ ████▀ ████▀
+                                    ██    ██
+                                    ▀▀    ▀▀
+
+build      : b11552-23b0202a1
+model      : /data/models/unsloth/Qwen3.6-35B-A3B-UD-IQ2_M.gguf
+ftype      : IQ2_M - 2.7 bpw
+modalities : text
+
+available commands:
+  /exit or Ctrl+C     stop or exit
+  /regen              regenerate the last response
+  /clear              clear the chat history
+  /read <file>        add a text file
+  /glob <pattern>     add text files using globbing pattern
+
+
+
+> Q: What is the capital of France? A:
+
+[Start thinking]
+
+Here's a thinking process:
+
+1
+
+[ Prompt: 26,8 t/s | Generation: 17,7 t/s ]
+
+> 
+
+Exiting...
