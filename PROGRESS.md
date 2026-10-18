@@ -115,8 +115,8 @@ Commande de base : `-cmoe -ngl 99 --moe-cache-mib 1024 --moe-profile /tmp/prof2.
   `ggml/src/ggml-cpu/ggml-cpu.c` (saut des ids `-1` + mise à zéro des lignes non écrites).
   **Les 7 diffs de `verify.sh` = 0** (le run `cpufb` a été ajouté).
 
-Git n'a pas d'identité configurée sur la machine (`yves@caspar.(none)` est refusé) → commits
-avec `git -c user.name="yves" -c user.email="yves@caspar.local"` (aucun fichier de config modifié).
+Git n'a pas d'identité configurée sur la machine (email `(none)` est refusé) → commits
+avec `git -c user.name=… -c user.email=…` (aucun fichier de config modifié).
 
 ## Parallelisme du build (mesuré cette session)
 

@@ -432,7 +432,7 @@ MTP `blk.40` non caché. `impl: CUDA0 MoE cache size = 1023,12 MiB for 9346,00 M
 - Shell = **mvdan/sh** : `&` inline abîmé, `<(...)` exige bash, `pid=$!` marche dans un fichier
   script. Pas de ninja, pas de ccache (`-D GGML_CCACHE=OFF` coupe le warning), pas de numpy, gdb
   présent, unity build NON activé, CUDA graphs désactivés sur sm_61, `USE_GRAPHS = 1`.
-- Git sans identité → `git -c user.name="yves" -c user.email="yves@caspar.local" commit`.
+- Git sans identité → `git -c user.name=… -c user.email=… commit`.
 - **`-p $P` sans guillemets** coupe le prompt en mots → `error: invalid argument: Explain`, exit 1,
   sorties **vides**, **tous les diffs = 0** (fausse vérification). Utiliser un tableau bash
   `base=(... -p "Q: Explain how a diesel engine works. A:" ...)` et `"${base[@]}"`, lancé avec `bash`.
