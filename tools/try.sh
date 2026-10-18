@@ -17,11 +17,11 @@ MODE=${1:-warm}
 fail() { echo "ERREUR : $*" >&2; exit 1; }
 
 # --- prérequis ---
-[ -x "$BIN" ] || fail "binaire $BIN absent — construire llama.cpp sur experimental/ornith-expert-cache"
+[ -x "$BIN" ] || fail "binaire $BIN absent — construire llama.cpp sur moe-expert-cache"
 [ -f "$MODEL" ] || fail "modèle $MODEL absent"
 [ -f "$PROFILE" ] || fail "profil $PROFILE absent"
 BR=$(cd "$LLAMA" && git branch --show-current)
-[ "$BR" = "experimental/ornith-expert-cache" ] || fail "branche llama.cpp = $BR, attendu experimental/ornith-expert-cache"
+[ "$BR" = "moe-expert-cache" ] || fail "branche llama.cpp = $BR, attendu moe-expert-cache"
 
 if [ "$MODE" = cold ]; then
     if [ "$(id -u)" = 0 ]; then sync; echo 3 > /proc/sys/vm/drop_caches; echo "page cache vidé"

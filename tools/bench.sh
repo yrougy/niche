@@ -19,10 +19,10 @@
 #   CPU fallback) sont masqués dans server.log ; les stats hit rate restent extraites de stats.csv).
 set -u
 
-LLAMA=/data/o35/llama.cpp
+LLAMA=${LLAMA:-/data/o35/llama.cpp}
 BIN=$LLAMA/build/bin/llama-server
 MODEL=${MODEL:-/data/models/unsloth/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}
-HERE=/data/o35/o35
+HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
 PROFILE=${PROFILE:-$HERE/tools/prof3.csv}
 OUT=/tmp/bench
 MODE=${1:-fb}
@@ -40,9 +40,9 @@ SPEC=""
 PORT=${PORT:-8002}
 
 fail() { echo "ERREUR : $*" >&2; exit 1; }
-[ -x "$BIN" ] || fail "binaire $BIN absent — construire llama.cpp sur experimental/ornith-expert-cache"
+[ -x "$BIN" ] || fail "binaire $BIN absent — construire llama.cpp sur moe-expert-cache"
 [ -f "$MODEL" ] || fail "modèle $MODEL absent"
-[ -f "$PROFILE" ] || fail "profil $PROFILE absent"
+case "$MODE" in off) ;; *) [ -f "$PROFILE" ] || fail "profil $PROFILE absent (chemin absolu conseillé — le serveur ne résout pas les chemins relatifs)" ;; esac
 
 case "$MODE" in
     fb)     BASE="-ngl 99 -cmoe"; CACHE="--moe-cache-mib $CACHE_MIB --moe-profile $PROFILE --moe-cache-static --moe-cache-cpu-fallback --moe-cache-pin-mib 1990"; [ "$TAIL_SKIP" != 0 ] && CACHE="$CACHE --moe-cache-tail-skip $TAIL_SKIP"; [ "$ADAPT" != 0 ] && CACHE="$CACHE --moe-cache-adapt $ADAPT" ;;

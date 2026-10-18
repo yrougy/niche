@@ -9,17 +9,17 @@
 # Sortie de la session : Ctrl+C. Un résumé (hit rate, majflt, lectures disque) s'affiche après.
 set -u
 
-LLAMA=/data/o35/llama.cpp
+LLAMA=${LLAMA:-/data/o35/llama.cpp}
 BIN=$LLAMA/build/bin/llama-cli
-MODEL=/data/models/unsloth/Qwen3.6-35B-A3B-UD-IQ2_M.gguf
-HERE=/data/o35/o35
-PROFILE=$HERE/tools/prof3.csv
+MODEL=${MODEL:-/data/models/unsloth/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}
+HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
+PROFILE=${PROFILE:-$HERE/tools/prof3.csv}
 OUT=/tmp/chat
 MODE=${1:-fb}
 CACHE_MIB=${CACHE_MIB:-4096}
 
 fail() { echo "ERREUR : $*" >&2; exit 1; }
-[ -x "$BIN" ] || fail "binaire $BIN absent — construire llama.cpp sur experimental/ornith-expert-cache"
+[ -x "$BIN" ] || fail "binaire $BIN absent — construire llama.cpp sur moe-expert-cache"
 [ -f "$MODEL" ] || fail "modèle $MODEL absent"
 [ -f "$PROFILE" ] || fail "profil $PROFILE absent"
 

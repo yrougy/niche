@@ -6,10 +6,14 @@ set -u
 
 CTX=${CTX:-4096}   # ← taille du contexte : à éditer ici, ou CTX=8192 tools/serve.sh
 
-LLAMA=/data/o35/llama.cpp
+LLAMA=${LLAMA:-/data/o35/llama.cpp}
 BIN=$LLAMA/build/bin/llama-server
-MODEL=/data/models/unsloth/Qwen3.6-35B-A3B-UD-IQ2_M.gguf
-PROFILE=/data/o35/o35/tools/prof3.csv
+HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
+ENVFILE=${ENVFILE:-$HERE/tools/machine-qwen.env}   # tools/calibrate.sh qwen … écrit ce fichier
+[ -f "$ENVFILE" ] && source "$ENVFILE"
+MODEL=${MODEL:-/data/models/unsloth/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}
+PROFILE=${PROFILE:-/data/o35/o35/tools/prof3.csv}
+MTP=${MTP:-1}   # MTP=0 pour les modèles sans tête MTP (ex. LFM2.5)
 HOST=0.0.0.0
 PORT=8002
 
@@ -24,13 +28,17 @@ else
     [ "$BANK" -ge 4096 ] || BANK=4096
 fi
 BANK=${BANK_OVERRIDE:-$BANK}   # BANK_OVERRIDE=5120 tools/serve.sh pour forcer le bank
+[ -n "${BANK_MAX:-}" ] && [ "$BANK" -gt "$BANK_MAX" ] && BANK=$BANK_MAX   # plafond mesuré par calibrate.sh
+PIN=${PIN:-1990}
 
 echo "llama-server cache MoE : CTX=$CTX bank=${BANK} MiB http://$HOST:$PORT (Ctrl-C pour arrêter)"
 
+SPEC=""; [ "$MTP" = 1 ] && SPEC="--spec-type draft-mtp"
+CORSARGS=""; [ -n "${CORS:-}" ] && CORSARGS="--cors-origins $CORS"   # ex. CORS=http://hote:8002 pour autoriser une UI web distante
 exec "$BIN" -m "$MODEL" \
     -ngl 99 -cmoe \
-    --moe-cache-mib "$BANK" --moe-profile "$PROFILE" --moe-cache-static --moe-cache-pin-mib 1990 \
-    --spec-type draft-mtp \
+    --moe-cache-mib "$BANK" --moe-profile "$PROFILE" --moe-cache-static --moe-cache-pin-mib "$PIN" \
+    $SPEC \
     --host "$HOST" --port "$PORT" \
     -c "$CTX" -fa on --cache-type-k q4_0 --cache-type-v q4_0 -ub 512 \
-    -t 8 --threads-batch 8 --parallel 1
+    -t 8 --threads-batch 8 --parallel 1 --metrics --slots --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command
