@@ -108,6 +108,7 @@ class Bridge:
                 self._note("out", line)
         p.wait()
         self.child = None
+        self._note("card_end")
         return p.returncode
 
     def stop(self):

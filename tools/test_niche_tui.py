@@ -24,6 +24,11 @@ async def scenario_events(pilot, br, app):
     br.progress("6.2MB sur 11.5GB", 0.55)
     await pilot.pause(0.3)
     assert app.prog[0] == 0.55
+    card = app.query_one("#card")
+    assert app.running and "elapsed" in card.render().plain      # spinner pendant la commande
+    br._note("card_end")
+    await pilot.pause(0.3)
+    assert not app.running and "(nothing running)" in card.render().plain
     print("  evts ok")
 
 

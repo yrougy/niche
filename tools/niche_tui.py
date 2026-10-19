@@ -12,6 +12,7 @@ from __future__ import annotations
 import queue
 import sys
 import threading
+import time
 from pathlib import Path
 
 from rich.text import Text
@@ -26,6 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent      # le dépôt niche (coin haut
 
 STEPS = {1: "Machine", 2: "Model", 3: "Build", 4: "Calibration", 5: "Ready"}
 SPLASH = "Niche — installer for the llama.cpp MoE-cache port"
+SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"   # carte : fait pendant qu'une commande tourne (calibration silencieuse)
 
 CSS = """
     Screen { background: #0d1117; }
@@ -68,6 +70,8 @@ class NicheApp(App):
         self.cur = 1
         self.action = ""
         self.prog: tuple | None = None      # (fraction, texte)
+        self.running = False                # une commande est en cours (card_cmd → card_end)
+        self._t0 = 0.0
         self.ask_labels: list = []
         self._timer: Timer | None = None
 
@@ -104,7 +108,12 @@ class NicheApp(App):
     def _draw_card(self) -> None:
         t = Text()
         t.append(f"step {self.cur} — {STEPS[self.cur]}\n", style="bold #75b6ff")
-        t.append(self.action or "(nothing running)\n")
+        if self.running:
+            el = int(time.monotonic() - self._t0)
+            t.append(f"{SPINNER[int(time.monotonic() * 3) % len(SPINNER)]} {self.action}"
+                     f"  ·  {el // 60:d}:{el % 60:02d} elapsed\n", style="bold")
+        else:
+            t.append(self.action or "(nothing running)\n")
         if self.prog is not None:
             frac, msg = self.prog
             if frac is not None:
@@ -130,6 +139,8 @@ class NicheApp(App):
                     return
         except queue.Empty:
             pass
+        if self.running:          # le spinner tourne même quand le moteur est silencieux
+            self._draw_card()
 
     def _apply(self, kind, text) -> None:
         out = self.query_one("#output", RichLog)
@@ -154,6 +165,13 @@ class NicheApp(App):
             out.write(text)
         elif kind == "card_cmd":
             self.action = text
+            self.running = True
+            self._t0 = time.monotonic()
+            self.prog = None
+        elif kind == "card_end":
+            self.running = False
+            self.action = ""
+            self.prog = None
         elif kind == "progress":
             msg, frac = text
             self.prog = (frac, msg) if frac is not None else (self.prog[0] if self.prog else None, msg)
