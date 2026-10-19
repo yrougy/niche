@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""niche_setup — le moteur sans écran du port cache-MoE o35 : état de la machine,
+"""niche_setup — le moteur sans écran du port cache-MoE niche : état de la machine,
 choix d'une QUANTIZATION ADAPTÉE À LA MACHINE pour LFM2.5 ou Qwen3.6-35B (l'API HF
 donne la liste et les tailles exactes ; le budget est le hot set RAM, pas la VRAM —
 cliff mesuré 12/10 : au-delà, le tail chaud faulte sur disque, tg ~7), réutilisation
@@ -18,7 +18,7 @@ import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent          # tools/
-ROOT = HERE.parent                              # le dépôt o35
+ROOT = HERE.parent                              # le dépôt niche
 
 # catalogue : familles de quants connues. « mesure »/« evite » = retours mesurés sur la
 # machine de dev (15 GiB RAM / 8 GiB VRAM, WORKLOG 12-14/10) ; ils guident la reco mais
@@ -279,7 +279,7 @@ def models_step(ui, info) -> dict:
 
 def pc_checks(ui) -> dict:
     """état de la machine — des avertissements, jamais d'arrêt (comme setup.sh)."""
-    ui.say(f"dépôt o35 : {ROOT}")
+    ui.say(f"dépôt niche : {ROOT}")
     llama = llama_dir()
     info = {}
     if (llama / ".git").is_dir():

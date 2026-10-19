@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""niche_tui — l'écran du setup o35 (« la bête doit tenir dans le clapier »), dans l'esprit
+"""niche_tui — l'écran du setup niche (« la bête doit tenir dans le clapier »), dans l'esprit
 de la TUI de project-maya : les étapes
 en onglets en haut, une carte pour ce qui tourne maintenant (avec sa barre de progression),
 la sortie sous forme de journal, les questions comme des menus, les touches dans le bas.
@@ -22,7 +22,7 @@ from textual.timer import Timer
 from textual.widgets import OptionList, RichLog, Static
 from textual.widgets.option_list import Option
 
-ROOT = Path(__file__).resolve().parent.parent      # le dépôt o35 (coin haut droit)
+ROOT = Path(__file__).resolve().parent.parent      # le dépôt niche (coin haut droit)
 
 STEPS = {1: "Ordinateur", 2: "Modèles", 3: "Build", 4: "Calibrage", 5: "Prêt"}
 SPLASH = "Niche — installeur du port cache-MoE pour llama.cpp"
@@ -59,7 +59,7 @@ class NicheApp(App):
     CSS = CSS
     BINDINGS = BINDINGS
     ENABLE_COMMAND_PALETTE = False
-    TITLE = "Niche · o35"
+    TITLE = "Niche · cache-MoE llama.cpp"
 
     def __init__(self, bridge):
         super().__init__()

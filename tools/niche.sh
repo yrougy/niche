@@ -1,5 +1,5 @@
 #!/bin/bash
-# niche.sh — l'installateur écran du port cache-MoE o35 (à la maya.sh de project-maya).
+# niche.sh — l'installateur écran du port cache-MoE niche (à la maya.sh de project-maya).
 #   tools/niche.sh              l'écran complet : machine, modèles, build, calibrage, serveur
 #   tools/niche.sh --plain      la même suite en texte brut (pipes, ssh sans écran)
 # Textual vient des roues locales (tools/wheels) dans tools/.venv : rien n'est téléchargé.

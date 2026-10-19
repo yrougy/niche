@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup.sh — préparer une machine pour le port cache-MoE o35 : build du port, téléchargement
+# setup.sh — préparer une machine pour le port cache-MoE niche : build du port, téléchargement
 # des modèles, mesure des paramètres (bank max, pin, profil de routage) via calibrate.sh.
 # Usage : tools/setup.sh [qwen|lfm|both]   (défaut : both)
 # Env :
