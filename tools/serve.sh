@@ -2,6 +2,8 @@
 # serve.sh — llama-server avec le cache MoE par expert, config optimale mesurée.
 # Avant-plan, host 0.0.0.0, port 8002. Ctrl-C pour arrêter.
 # Config de référence : static bank 5632 + MTP à CTX 4096 → tg ~39,8 / pp ~446.
+# Spec : SPEC= vaut pour --spec-type (liste virgules autorisée, ex. SPEC=draft-mtp,ngram-mod) ;
+# défaut : draft-mtp si MODEL_HAS_NEXTN, sinon rien. SPEC=none désactive toute spec.
 set -u
 
 CTX=${CTX:-4096}   # ← taille du contexte : à éditer ici, ou CTX=8192 tools/serve.sh
@@ -35,12 +37,14 @@ PIN=${PIN:-1990}
 
 echo "llama-server MoE cache: CTX=$CTX bank=${BANK} MiB http://$HOST:$PORT (Ctrl-C to stop)"
 
-SPEC=""; [ "$MTP" = 1 ] && SPEC="--spec-type draft-mtp"
+SPEC=${SPEC:-}
+[ -z "$SPEC" ] && [ "$MTP" = 1 ] && SPEC=draft-mtp
+SPECARGS=""; [ -n "$SPEC" ] && SPECARGS="--spec-type $SPEC"
 CORSARGS=""; [ -n "${CORS:-}" ] && CORSARGS="--cors-origins $CORS"   # ex. CORS=http://hote:8002 pour autoriser une UI web distante
 exec "$BIN" -m "$MODEL" \
     -ngl 99 -cmoe \
     --moe-cache-mib "$BANK" --moe-profile "$PROFILE" --moe-cache-static --moe-cache-pin-mib "$PIN" \
-    $SPEC \
+    $SPECARGS \
     --host "$HOST" --port "$PORT" \
     -c "$CTX" -fa on --cache-type-k q4_0 --cache-type-v q4_0 -ub 512 \
     -t 8 --threads-batch 8 --parallel 1 --metrics --slots --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command

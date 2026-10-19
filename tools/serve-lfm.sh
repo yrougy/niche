@@ -6,10 +6,14 @@
 #   CTX 131072 (max natif du modèle) + bank 6144 → tg 46,5 / pp 949 / hit 98,2 % (16/10 ; 6400 = OOM).
 #   Bank 6912 = OOM CUDA à 65536 ; 7168 = OOM même à 8192.
 #   Plate de 8k à 64k, puis pente ≈ 48 MiB/8k (modèle hybride : ~11/40 couches KV, q4_0).
-# Pas de tête MTP dans ce GGUF → pas de --spec-type.
+# Pas de tête MTP dans ce GGUF → spec par lookup ngram. Spéculation ngram-mod par DÉFAUT
+# depuis le 19/10 (mesure A/B, trafic répétitif de type session de code : tg 52 → 126, hit
+# MoE à peine entamé 95→94 % ; coût seule requête à froid −7 %). SPEC=none (ou SPEC=) pour
+# désactiver, SPEC=ngram-simple|ngram-map-k|ngram-cache pour une autre politique.
 # Note : le template chat LFM2.5 active le mode raisonnement par défaut → la sortie textuelle
 # arrive dans reasoning_content du JSON, content peut rester vide (test API 14/10/2026).
-# Env : CTX (65536), BANK_OVERRIDE, MODEL, PROFILE, PIN, PORT, HOST, ENVFILE=tools/machine-lfm.env,
+# Env : CTX (65536), BANK_OVERRIDE, MODEL, PROFILE, PIN, PORT, HOST, SPEC (ngram-mod),
+#       ENVFILE=tools/machine-lfm.env,
 #       MOE_STATS=/tmp/moe-stats-lfm.csv (csv hit rate par couche/expert : écrit au chargement,
 #       compteurs finaux flushés à l'arrêt propre SIGINT/Ctrl-C)
 # Échantillonnage conforme à la model card LFM2.5 (relevé 16/10) : TEMP=0.1 TOPK=50 RPEN=1.05.
@@ -33,6 +37,9 @@ TEMP=${TEMP:-0.1}     # model card LFM2.5
 TOPK=${TOPK:-50}      # model card LFM2.5
 RPEN=${RPEN:-1.05}    # model card LFM2.5
 
+SPEC=${SPEC:-ngram-mod}
+SPECARGS=""; [ -n "$SPEC" ] && SPECARGS="--spec-type $SPEC"
+
 fail() { echo "error: $*" >&2; exit 1; }
 [ -x "$BIN" ] || fail "binary $BIN missing — build llama.cpp (branch moe-expert-cache)"
 [ -f "$MODEL" ] || fail "model $MODEL missing"
@@ -55,6 +62,7 @@ CORSARGS=""; [ -n "${CORS:-}" ] && CORSARGS="--cors-origins $CORS"   # ex. CORS=
 exec "$BIN" -m "$MODEL" \
     -ngl 99 -cmoe \
     --moe-cache-mib "$BANK" --moe-profile "$PROFILE" --moe-cache-static --moe-cache-pin-mib "$PIN" \
+    $SPECARGS \
     --moe-stats "$MOE_STATS" \
     --host "$HOST" --port "$PORT" \
     -c "$CTX" -fa on --cache-type-k q4_0 --cache-type-v q4_0 -ub 512 \
