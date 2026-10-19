@@ -10,6 +10,8 @@
 # depuis le 19/10 (mesure A/B, trafic répétitif de type session de code : tg 52 → 126, hit
 # MoE à peine entamé 95→94 % ; coût seule requête à froid −7 %). SPEC=none (ou SPEC=) pour
 # désactiver, SPEC=ngram-simple|ngram-map-k|ngram-cache pour une autre politique.
+# Multi-tour : réutilisation du KV déjà active par défaut (idle slot + -cram 8192) ; mesure
+# 19/10 : tours 2+ ≈ 100 tokens pp, branche (reroll/édition) ≈ 55 — pas besoin de --cache-reuse.
 # Note : le template chat LFM2.5 active le mode raisonnement par défaut → la sortie textuelle
 # arrive dans reasoning_content du JSON, content peut rester vide (test API 14/10/2026).
 # Env : CTX (65536), BANK_OVERRIDE, MODEL, PROFILE, PIN, PORT, HOST, SPEC (ngram-mod),

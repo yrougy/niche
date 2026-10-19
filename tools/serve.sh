@@ -4,6 +4,9 @@
 # Config de référence : static bank 5632 + MTP à CTX 4096 → tg ~39,8 / pp ~446.
 # Spec : SPEC= vaut pour --spec-type (liste virgules autorisée, ex. SPEC=draft-mtp,ngram-mod) ;
 # défaut : draft-mtp si MODEL_HAS_NEXTN, sinon rien. SPEC=none désactive toute spec.
+# Multi-tour : la réutilisation du KV du contexte est DÉJÀ active par défaut (fiche idle slot
+# + cache de prompt -cram 8192) ; mesure 19/10 : tours 2+ ≈ 100 tokens pp seulement, branche
+# (édition/reroll) ≈ 55. Inutile de passer --cache-reuse dans nos usages.
 set -u
 
 CTX=${CTX:-4096}   # ← taille du contexte : à éditer ici, ou CTX=8192 tools/serve.sh
