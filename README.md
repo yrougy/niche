@@ -22,8 +22,9 @@ niche/tools/niche.sh --plain    # same steps as plain text, for ssh/pipes
 The installer walks through, and reuses anything already present:
 
 1. **Machine checks** — git checkout of the fork, build, RAM, GPU, installed GGUFs.
-2. **Build** — clones the fork automatically (branch `moe-expert-cache`) if
-   `$LLAMA` (default `/data/o35/llama.cpp`) is absent, then cmake + build.
+2. **Build** — clones the fork automatically (branch `moe-expert-cache`) into
+   `./llama.cpp` if `$LLAMA` is absent. The clone and the model directory `./models`
+   are git-ignored, so nothing nested can pollute or recurse into this repository.
 3. **Models** — picks the GGUF quant that fits the machine: it queries the Hugging Face
    API for real file sizes, computes a budget of `MemTotal − 3 GiB` (the constraint is
    the hot set in RAM, not VRAM), and prefers a quant whose quality step was already
@@ -67,6 +68,9 @@ tools/serve-lfm.sh      LFM2.5 server
 tools/try.sh bench.sh   one-shot latency / benchmark harness
 tools/machine-lfm.env   measured parameters of the dev machine
 WORKLOG.md              full experiment journal (French) — measurements, dead ends, fixes
+
+llama.cpp/  models/     created by the installer next to these tools (git-ignored;
+                        on our dev machine they are symlinks to sibling checkouts)
 ```
 
 ## Requirements

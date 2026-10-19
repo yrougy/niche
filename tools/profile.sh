@@ -8,10 +8,10 @@
 # Env : PORT (8002), PP_N (4096), TG_N (256), TG_ROUNDS (2), CTX (8192), THREADS (8)
 set -u
 
-LLAMA=${LLAMA:-/data/o35/llama.cpp}
-BIN=$LLAMA/build/bin/llama-server
-MODEL=${MODEL:-/data/models/unsloth/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}
 HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
+LLAMA=${LLAMA:-$HERE/llama.cpp}
+BIN=$LLAMA/build/bin/llama-server
+MODEL=${MODEL:-$HERE/models/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}
 OUT=${1:-$HERE/tools/prof3.csv}
 case "$OUT" in /*) ;; *) OUT=$PWD/$OUT ;; esac
 LOG=/tmp/profile/server.log

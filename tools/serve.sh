@@ -6,13 +6,13 @@ set -u
 
 CTX=${CTX:-4096}   # ← taille du contexte : à éditer ici, ou CTX=8192 tools/serve.sh
 
-LLAMA=${LLAMA:-/data/o35/llama.cpp}
-BIN=$LLAMA/build/bin/llama-server
 HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
+LLAMA=${LLAMA:-$HERE/llama.cpp}
+BIN=$LLAMA/build/bin/llama-server
 ENVFILE=${ENVFILE:-$HERE/tools/machine-qwen.env}   # tools/calibrate.sh qwen … écrit ce fichier
 [ -f "$ENVFILE" ] && source "$ENVFILE"
-MODEL=${MODEL:-/data/models/unsloth/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}
-PROFILE=${PROFILE:-/data/o35/o35/tools/prof3.csv}
+MODEL=${MODEL:-$HERE/models/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}
+PROFILE=${PROFILE:-$HERE/tools/prof3.csv}
 MTP=${MTP:-1}   # MTP=0 pour les modèles sans tête MTP (ex. LFM2.5)
 HOST=0.0.0.0
 PORT=8002

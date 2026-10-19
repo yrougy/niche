@@ -15,7 +15,7 @@
 set -u
 
 HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
-LLAMA=${LLAMA:-/data/o35/llama.cpp}
+LLAMA=${LLAMA:-$HERE/llama.cpp}
 BIN=$LLAMA/build/bin/llama-server
 
 fail() { echo "ERREUR : $*" >&2; exit 1; }

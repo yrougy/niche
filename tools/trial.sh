@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /data/o35/o35
+cd "$(cd "$(dirname "$0")/.." && pwd)"
 for mode in cpufb clean; do
   echo "=== EVICT 13 GiB, mode=$mode ==="
   python3 tools/evict.py 13

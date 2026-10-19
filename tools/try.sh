@@ -4,10 +4,10 @@
 # Résultat attendu : majflt = 0 pendant le décode et sortie bit-identique à masters/clean128.txt.
 set -u
 
-LLAMA=/data/o35/llama.cpp
+HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
+LLAMA=${LLAMA:-$HERE/llama.cpp}
 BIN=$LLAMA/build/bin/llama-cli
-MODEL=/data/models/unsloth/Qwen3.6-35B-A3B-UD-IQ2_M.gguf
-HERE=/data/o35/o35
+MODEL=${MODEL:-$HERE/models/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}
 PROFILE=$HERE/tools/prof2.csv
 MASTER=$HERE/masters
 PROMPT="Q: What is the capital of France? A:"

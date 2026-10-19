@@ -3,9 +3,9 @@
 # des modèles, mesure des paramètres (bank max, pin, profil de routage) via calibrate.sh.
 # Usage : tools/setup.sh [qwen|lfm|both]   (défaut : both)
 # Env :
-#   MODEL_DIR   répertoire d'installation des GGUF (défaut /data/models/unsloth)
-#   LLAMA       checkout llama.cpp de la branche moe-expert-cache (défaut /data/o35/llama.cpp,
-#               cloné automatiquement depuis le fork si le chemin n'existe pas)
+#   MODEL_DIR   répertoire d'installation des GGUF (défaut $HERE/models)
+#   LLAMA       checkout llama.cpp de la branche moe-expert-cache (défaut $HERE/llama.cpp,
+#               cloné automatiquement depuis le fork si absent — dossier gitignoré)
 #   FORK        URL du fork llama.cpp portant le cache MoE (défaut ci-dessous)
 #   SKIP_BUILD / SKIP_DOWNLOAD / SKIP_CALIB = 1 pour sauter une étape
 #   CMAKE_EXTRA flags cmake additionnels (ex. -DGGML_CUDA=ON — détection auto par défaut)
@@ -13,8 +13,8 @@
 set -u
 
 HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
-LLAMA=${LLAMA:-/data/o35/llama.cpp}
-MODEL_DIR=${MODEL_DIR:-/data/models/unsloth}
+LLAMA=${LLAMA:-$HERE/llama.cpp}
+MODEL_DIR=${MODEL_DIR:-$HERE/models}
 FORK=${FORK:-https://github.com/yrougy/llama-moe-cache.git}
 WHICH=${1:-both}
 

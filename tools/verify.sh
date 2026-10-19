@@ -1,8 +1,9 @@
 #!/bin/bash
 # Re-run the static/LRU configs and compare against the recorded baselines.
-MODEL=/data/models/unsloth/Qwen3.6-35B-A3B-UD-IQ2_M.gguf
-BIN=/data/o35/llama.cpp/build/bin/llama-cli
-MASTER=/data/o35/o35/masters
+HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
+MODEL=${MODEL:-$HERE/models/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}
+BIN=${BIN:-$HERE/llama.cpp/build/bin/llama-cli}
+MASTER=${MASTER:-$HERE/masters}
 PROMPT="Q: What is the capital of France? A:"
 clean() { grep -v "t/s\|Loading model\|Exiting\|^build      :\|^>$\|^$" "$1" > "$2"; }
 
@@ -72,7 +73,7 @@ runB() {
 checkB() {
     name=$1; ref=$2; expect=$3
     if [ ! -f "$ref" ]; then echo "$name vs $ref: MASTER MISSING"; return; fi
-    d=$(python3 /data/o35/o35/tools/cmp.py "$ref" "/tmp/$name.txt" | grep -o "diff=[0-9]*" | cut -d= -f2)
+    d=$(python3 $HERE/tools/cmp.py "$ref" "/tmp/$name.txt" | grep -o "diff=[0-9]*" | cut -d= -f2)
     if [ "$d" = "$expect" ]; then
         echo "$name vs $ref: content diff = $d OK"
     else

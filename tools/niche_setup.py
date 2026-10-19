@@ -60,11 +60,11 @@ FORK = "https://github.com/yrougy/llama-moe-cache.git"
 
 
 def model_dir() -> Path:
-    return Path(os.environ.get("MODEL_DIR", "/data/models/unsloth"))
+    return Path(os.environ.get("MODEL_DIR", str(ROOT / "models")))
 
 
 def llama_dir() -> Path:
-    return Path(os.environ.get("LLAMA", "/data/o35/llama.cpp"))
+    return Path(os.environ.get("LLAMA", str(ROOT / "llama.cpp")))
 
 
 def gguf_dirs() -> list:

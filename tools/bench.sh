@@ -19,10 +19,10 @@
 #   CPU fallback) sont masqués dans server.log ; les stats hit rate restent extraites de stats.csv).
 set -u
 
-LLAMA=${LLAMA:-/data/o35/llama.cpp}
-BIN=$LLAMA/build/bin/llama-server
-MODEL=${MODEL:-/data/models/unsloth/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}
 HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
+LLAMA=${LLAMA:-$HERE/llama.cpp}
+BIN=$LLAMA/build/bin/llama-server
+MODEL=${MODEL:-$HERE/models/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}
 PROFILE=${PROFILE:-$HERE/tools/prof3.csv}
 OUT=/tmp/bench
 MODE=${1:-fb}
