@@ -21,6 +21,17 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent          # tools/
 ROOT = HERE.parent                              # le dépôt niche
 
+
+def find_nvcc():
+    """nvcc sur le PATH, sinon toolkit le plus récent sous /usr/local ou /opt.
+    Sans ça, cmake ne trouve pas nvcc hors PATH et configure en CPU-only sans rien
+    dire — et le cache MoE exige un backend GPU (llama-moe-cache.cpp jette)."""
+    nv = shutil.which("nvcc")
+    if nv:
+        return nv
+    cands = sorted(str(p) for base in ("/usr/local", "/opt") for p in Path(base).glob("cuda-*/bin/nvcc"))
+    return cands[-1] if cands else None
+
 # catalogue : familles de quants connues. « mesure »/« evite » = retours mesurés sur la
 # machine de dev (15 GiB RAM / 8 GiB VRAM, WORKLOG 12-14/10) ; ils guident la reco mais
 # ne remplacent pas le budget calculé sur la machine de l'utilisateur.
@@ -343,8 +354,10 @@ def pc_checks(ui) -> dict:
 def build_step(ui, info) -> bool:
     b = info["bin"]
     if b.is_file():
-        ui.ok(f"build already there: {b}")
-        return True
+        if (b.parent / "libggml-cuda.so").is_file():
+            ui.ok(f"build already there: {b}")
+            return True
+        ui.warn("existing build lacks libggml-cuda.so — the MoE cache requires a CUDA backend; reconfiguring")
     c = ui.ask("compile llama.cpp (the build may take 10-30 min)?", ["compile", "skip"], "compile")
     if c != "compile":
         return b.is_file()
@@ -358,14 +371,25 @@ def build_step(ui, info) -> bool:
             ui.fail("git clone failed (network?)")
             return False
         info["bin"] = llama_dir() / "build" / "bin" / "llama-server"
-    if not (llama_dir() / "build").exists():
-        if ui.run(["cmake", "-S", str(llama_dir()), "-B", str(llama_dir() / "build")]) != 0:
+    build = llama_dir() / "build"
+    cache = build / "CMakeCache.txt"
+    if not cache.is_file() or "GGML_CUDA:BOOL=ON" not in cache.read_text():
+        cfg = ["cmake", "-S", str(llama_dir()), "-B", str(build), "-DGGML_CUDA=ON"]
+        nv = find_nvcc()
+        if nv:
+            cfg.append(f"-DCMAKE_CUDA_COMPILER={nv}")
+        else:
+            ui.warn("nvcc not found on PATH or under /usr/local — cmake may fail to enable CUDA (install the CUDA toolkit)")
+        if ui.run(cfg) != 0:
             ui.fail("cmake configure failed")
             return False
-    if ui.run(["cmake", "--build", str(llama_dir() / "build"), "-j", str(os.cpu_count() or 8)]) != 0:
+    if ui.run(["cmake", "--build", str(build), "-j", str(os.cpu_count() or 8)]) != 0:
         ui.fail("build failed")
         return False
     if b.is_file():
+        if not (b.parent / "libggml-cuda.so").is_file():
+            ui.fail("build has no CUDA backend (libggml-cuda.so) — the MoE cache requires it; install the CUDA toolkit and rebuild")
+            return False
         ui.ok(f"binary: {b}")
         return True
     ui.fail("build finished with no llama-server — check the CUDA warnings above")

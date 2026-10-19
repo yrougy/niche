@@ -8,7 +8,7 @@
 #               cloné automatiquement depuis le fork si absent — dossier gitignoré)
 #   FORK        URL du fork llama.cpp portant le cache MoE (défaut ci-dessous)
 #   SKIP_BUILD / SKIP_DOWNLOAD / SKIP_CALIB = 1 pour sauter une étape
-#   CMAKE_EXTRA flags cmake additionnels (ex. -DGGML_CUDA=ON — détection auto par défaut)
+#   CMAKE_EXTRA flags cmake additionnels (ex. -DCMAKE_CUDA_ARCHITECTURES=61 ; CUDA forcé par défaut)
 #   CTX PP_N TG_N paramètres passés à calibrate.sh
 set -u
 
@@ -42,10 +42,15 @@ else
     echo "WARNING: $LLAMA exists but is not a git repo — empty that path and setup.sh will clone the port ($FORK)." >&2
 fi
 if [ "${SKIP_BUILD:-0}" != 1 ]; then
-    [ -d "$LLAMA/build" ] || cmake -S "$LLAMA" -B "$LLAMA/build" ${CMAKE_EXTRA:-} || fail "cmake configure failed"
+    nv="$(command -v nvcc 2>/dev/null || ls -1 /usr/local/cuda-*/bin/nvcc /opt/cuda-*/bin/nvcc 2>/dev/null | tail -1)"
+    if [ ! -d "$LLAMA/build" ] || ! grep -q "GGML_CUDA:BOOL=ON" "$LLAMA/build/CMakeCache.txt" 2>/dev/null; then
+        [ -n "$nv" ] || echo "WARNING: no nvcc found — cmake may not enable CUDA (the MoE cache needs a GPU backend)" >&2
+        cmake -S "$LLAMA" -B "$LLAMA/build" -DGGML_CUDA=ON ${nv:+-DCMAKE_CUDA_COMPILER=$nv} ${CMAKE_EXTRA:-} || fail "cmake configure failed"
+    fi
     cmake --build "$LLAMA/build" -j"$(nproc)" || fail "llama.cpp build failed"
 fi
 [ -x "$LLAMA/build/bin/llama-server" ] || fail "llama-server missing in $LLAMA/build/bin"
+[ -e "$LLAMA/build/bin/libggml-cuda.so" ] || grep -q "GGML_CUDA:BOOL=ON" "$LLAMA/build/CMakeCache.txt" 2>/dev/null || fail "build has no CUDA backend — the MoE cache requires it; install the CUDA toolkit and rebuild"
 echo "binary OK: $LLAMA/build/bin/llama-server"
 
 # ---------- 2. modèles ----------
