@@ -20,7 +20,7 @@ def curl_meter(line: str):
     f = line.split()
     if len(f) != 12 or not (f[0].isdigit() and f[2].isdigit()):
         return None
-    return int(f[0]) / 100, f"{f[3]}B sur {f[1]}B, {f[11]}B/s, reste {f[10]}"
+    return int(f[0]) / 100, f"{f[3]}B of {f[1]}B, {f[11]}B/s, left {f[10]}"
 
 
 def describe(cmd: list) -> str:
@@ -28,13 +28,13 @@ def describe(cmd: list) -> str:
     joined = " ".join(cmd)
     name = Path(cmd[0]).stem.lower()
     if name == "cmake":
-        return "configuration de la build (cmake)" if "-S" in joined else "compilation de llama.cpp (cmake --build)"
+        return "configuring the build (cmake)" if "-S" in joined else "compiling llama.cpp (cmake --build)"
     if name == "curl":
-        return "téléchargement du modèle (curl, reprise auto)"
+        return "model download (curl, auto resume)"
     if "calibrate.sh" in joined:
-        return f"calibrage machine : {joined.split('calibrate.sh')[-1].strip()}"
+        return f"machine calibration: {joined.split('calibrate.sh')[-1].strip()}"
     if "llama-server" in joined:
-        return "serveur llama-server (Ctrl+C ou 'q' pour l'arrêter)"
+        return "llama-server (Ctrl+C or 'q' to stop)"
     return joined[:100]
 
 
@@ -135,9 +135,9 @@ class PlainUI(Bridge):
         elif kind == "ok":
             print(f"  ok     : {text}", flush=True)
         elif kind == "warn":
-            print(f"  ATTENT : {text}", flush=True)
+            print(f"  warning: {text}", flush=True)
         elif kind == "fail":
-            print(f"  ERREUR : {text}", flush=True)
+            print(f"  error  : {text}", flush=True)
 
     def progress(self, msg=None, frac=None):
         if msg:
@@ -146,7 +146,7 @@ class PlainUI(Bridge):
     def ask(self, question, choices, default):
         print(f"\n{question}", flush=True)
         for i, c in enumerate(choices, start=1):
-            mark = " (défaut)" if c == default else ""
+            mark = " (default)" if c == default else ""
             print(f"  {i}. {c}{mark}", flush=True)
         try:
             r = input("> ").strip()

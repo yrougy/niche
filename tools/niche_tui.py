@@ -24,8 +24,8 @@ from textual.widgets.option_list import Option
 
 ROOT = Path(__file__).resolve().parent.parent      # le dépôt niche (coin haut droit)
 
-STEPS = {1: "Ordinateur", 2: "Modèle", 3: "Build", 4: "Calibrage", 5: "Prêt"}
-SPLASH = "Niche — installeur du port cache-MoE pour llama.cpp"
+STEPS = {1: "Machine", 2: "Model", 3: "Build", 4: "Calibration", 5: "Ready"}
+SPLASH = "Niche — installer for the llama.cpp MoE-cache port"
 
 CSS = """
     Screen { background: #0d1117; }
@@ -83,11 +83,11 @@ class NicheApp(App):
                     with Vertical(id="ask"):
                         yield Static("", id="intro")
                         yield OptionList(id="options")
-                yield Static("↑↓ choix · Entrée valider · Ctrl+C arrêter puis quitter · "
-                             "la sortie complète : tools/niche-setup.log", id="keys")
+                yield Static("↑↓ select · Enter validate · Ctrl+C stop then quit · "
+                             "full output: tools/niche-setup.log", id="keys")
 
     def on_mount(self) -> None:
-        self.query_one("#card").border_title = "en cours"
+        self.query_one("#card").border_title = "in progress"
         self.query_one("#output").border_title = "sortie"
         self.query_one("#ask").border_title = "question"
         self._draw_tabs()
@@ -103,8 +103,8 @@ class NicheApp(App):
 
     def _draw_card(self) -> None:
         t = Text()
-        t.append(f"étape {self.cur} — {STEPS[self.cur]}\n", style="bold #75b6ff")
-        t.append(self.action or "(rien de lancé)\n")
+        t.append(f"step {self.cur} — {STEPS[self.cur]}\n", style="bold #75b6ff")
+        t.append(self.action or "(nothing running)\n")
         if self.prog is not None:
             frac, msg = self.prog
             if frac is not None:
@@ -140,16 +140,16 @@ class NicheApp(App):
                 if i < n:
                     self.state[i] = "done"
             self.state[n], self.cur = "run", n
-            out.write(Text(f"\n== étape {n} : {title} ==", style="bold"))
+            out.write(Text(f"\n== step {n} : {title} ==", style="bold"))
             self._draw_tabs()
         elif kind == "say":
             out.write(text)
         elif kind == "ok":
             out.write(Text(f"ok     : {text}", style="green"))
         elif kind == "warn":
-            out.write(Text(f"ATTENT : {text}", style="orange1"))
+            out.write(Text(f"warning: {text}", style="orange1"))
         elif kind == "fail":
-            out.write(Text(f"ERREUR : {text}", style="bold red"))
+            out.write(Text(f"error  : {text}", style="bold red"))
         elif kind == "out":
             out.write(text)
         elif kind == "card_cmd":
@@ -162,7 +162,7 @@ class NicheApp(App):
             self.ask_labels = choices
             ol = self.query_one("#options", OptionList)
             ol.clear_options()
-            ol.add_options([Option(f"{c}{'   [défaut]' if c == default else ''}", id=i)
+            ol.add_options([Option(f"{c}{'   [default]' if c == default else ''}", id=i)
                             for i, c in enumerate(choices)])
             ol.highlighted = choices.index(default) if default in choices else 0
             self.query_one("#intro", Static).update(q)
@@ -178,7 +178,7 @@ class NicheApp(App):
 
     # --------------------------------------------------------- réponses aux menus
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        label = str(event.option.prompt).split("   [défaut]")[0]
+        label = str(event.option.prompt).split("   [default]")[0]
         self.query_one("#ask", Vertical).remove_class("on")
         self.bridge.answer(label)
 
@@ -198,7 +198,7 @@ def main() -> int:
         try:
             niche_setup.body(ui)
         except KeyboardInterrupt:
-            print("\ninterrompu")
+            print("\ninterrupted")
             return 1
         return 0
 

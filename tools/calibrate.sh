@@ -18,15 +18,15 @@ HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
 LLAMA=$(realpath -m "${LLAMA:-$HERE/llama.cpp}")   # absolu : bench.sh cd dans $LLAMA
 BIN=$LLAMA/build/bin/llama-server
 
-fail() { echo "ERREUR : $*" >&2; exit 1; }
+fail() { echo "error: $*" >&2; exit 1; }
 TAG=${1:?TAG requis (ex. qwen, lfm)}
 MODEL=${2:?chemin absolu du GGUF requis}
 case "$MODEL" in
     /*) ;;
-    *) fail "MODEL doit être un CHEMIN ABSOLU : le serveur est lancé depuis $LLAMA et ne résout pas les chemins relatifs (le static retombe sinon en LRU sans warn visible)" ;;
+    *) fail "MODEL must be an ABSOLUTE PATH: the server is launched from $LLAMA and does not resolve relative paths (static otherwise silently falls back to LRU, no visible warn)" ;;
 esac
-[ -f "$MODEL" ] || fail "modèle $MODEL absent"
-[ -x "$BIN" ] || fail "binaire $BIN absent — outils/setup.sh construit le port"
+[ -f "$MODEL" ] || fail "model $MODEL missing"
+[ -x "$BIN" ] || fail "binary $BIN missing — tools/setup.sh builds the port"
 
 CTX=${CTX:-8192}
 PP_N=${PP_N:-2048}; TG_N=${TG_N:-256}
@@ -38,15 +38,15 @@ OUT=/tmp/bench
 
 # ---------- 1. faits machine ----------
 VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
-[ -n "$VRAM" ] || fail "aucun GPU (nvidia-smi) — le port place le bank sur le GPU ; sans CUDA, utiliser la config off amont"
+[ -n "$VRAM" ] || fail "no GPU (nvidia-smi) — the port puts the bank on the GPU; without CUDA, use the upstream off config"
 RAM=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo)
 RLIM=$(ulimit -l)
 if [ "$RLIM" = "unlimited" ]; then PIN=1990; else PIN=$(( RLIM / 1024 - 16 )); [ "$PIN" -gt 1990 ] && PIN=1990; [ "$PIN" -lt 0 ] && PIN=0; fi
 MODEL_MIB=$(( $(stat -c %s "$MODEL") / 1048576 ))
 HAS_NEXTN=$(head -c 262144 "$MODEL" | grep -ac nextn_predict_layers || true)
-[ "$MODEL_MIB" -gt $(( RAM - 2048 )) ] && echo "ATTENTION : modèle ${MODEL_MIB} MiB ≈ RAM dispo ${RAM} MiB — risque de cliff disque (cf. Qwen Q3_K_M tg 6,7). Prendre un quant plus bas."
+[ "$MODEL_MIB" -gt $(( RAM - 2048 )) ] && echo "WARNING: model ${MODEL_MIB} MiB ≈ free RAM ${RAM} MiB — disk cliff risk (see Qwen Q3_K_M tg 6.7). Take a lower quant."
 
-echo "== machine : VRAM=${VRAM} MiB  RAM dispo=${RAM} MiB  pin=${PIN} MiB  threads=${THREADS}  nextn=${HAS_NEXTN} =="
+echo "== machine: VRAM=${VRAM} MiB  free RAM=${RAM} MiB  pin=${PIN} MiB  threads=${THREADS}  nextn=${HAS_NEXTN} =="
 
 # ---------- helpers ----------
 run_bench() {  # $1=bank (0 = mode off) $2=PPN $3=TGN → $OUT rempli ; rc = 0 ok, sinon échec serveur
@@ -82,41 +82,41 @@ is_oom() { grep -qiE "out of memory|resource allocation failed" "$OUT/server.log
 
 # ---------- 2. baseline off ----------
 echo "== baseline off =="
-run_bench 0 "$PP_N" "$TG_N" || fail "bench off (baseline) impossible — voir $OUT/server.log"
+run_bench 0 "$PP_N" "$TG_N" || fail "off bench (baseline) impossible — see $OUT/server.log"
 read -r OFF_PP OFF_TG _ <<<"$(measure)"
 echo "  off : pp=$OFF_PP tg=$OFF_TG"
 
 # ---------- 3. profil de routage ----------
 if [ "${SKIP_PROFILE:-0}" != 1 ]; then
-    echo "== profil de routage (config off) -> $PROFILE =="
-    CTX=$CTX PP_N=$PP_N TG_N=$TG_N THREADS=$THREADS MODEL=$MODEL "$HERE/tools/profile.sh" "$PROFILE" >/dev/null || fail "profile.sh a échoué"
+    echo "== routing profile (off config) -> $PROFILE =="
+    CTX=$CTX PP_N=$PP_N TG_N=$TG_N THREADS=$THREADS MODEL=$MODEL "$HERE/tools/profile.sh" "$PROFILE" >/dev/null || fail "profile.sh failed"
 fi
-[ -f "$PROFILE" ] || fail "profil $PROFILE absent"
+[ -f "$PROFILE" ] || fail "profile $PROFILE missing"
 
 # ---------- 4. plafond de bank (VRAM) ----------
 CAP=$(( VRAM - 640 ))   # réserve non-experts + KV + compute
 CEIL=1024; FAIL=$(( CAP < 1024 ? 1024 : CAP + 1 ))
 if [ "${VERIFY_CEILING:-1}" = 1 ]; then
-    echo "== recherche du plafond de bank (sonde : pp=$PPNP tg=$TGNP) =="
+    echo "== bank ceiling search (probe: pp=$PPNP tg=$TGNP) =="
     for b in 2048 4096 6144 8192 12288 16384 32768; do
         [ "$b" -le "$CAP" ] || { FAIL=$b; break; }
         run_bench "$b" "$PPNP" "$TGNP"
-        if [ $? -ne 0 ] || is_oom; then FAIL=$b; echo "  sonde $b : OOM"; break; fi
-        CEIL=$b; echo "  sonde $b : OK"
+        if [ $? -ne 0 ] || is_oom; then FAIL=$b; echo "  probe $b: OOM"; break; fi
+        CEIL=$b; echo "  probe $b: OK"
     done
     if [ $(( FAIL - CEIL )) -gt 256 ]; then
         while [ $(( FAIL - CEIL )) -gt 256 ]; do
             mid=$(( (CEIL + FAIL) / 2 ))
             run_bench "$mid" "$PPNP" "$TGNP"
             if [ $? -ne 0 ] || is_oom; then FAIL=$mid; else CEIL=$mid; fi
-            echo "  binaire $mid : $([ -e $OUT/tg.json ] && echo OK || echo OOM)"
+            echo "  probe $mid: $([ -e $OUT/tg.json ] && echo OK || echo OOM)"
         done
     fi
 fi
-echo "  plafond mesuré : bank ${CEIL} MiB passe, ${FAIL} MiB OOM (CTX=$CTX)"
+echo "  measured ceiling: bank ${CEIL} MiB fits, ${FAIL} MiB OOM (CTX=$CTX)"
 
 # ---------- 5. mesure par paliers -> meilleur bank ----------
-echo "== mesure tg/pp/hit par paliers (pp=$PP_N tg=$TG_N) =="
+echo "== tg/pp/hit by steps (pp=$PP_N tg=$TG_N) =="
 POINTS=$(python3 - <<PY
 seen = set()
 for b in (1024, 2048, 4096, $CEIL - 1024, $CEIL - 512, $CEIL):
@@ -126,7 +126,7 @@ PY
 )
 BEST_TG=-1; BEST_BANK=0; BEST_PP=0; BEST_HIT=0; ROWS=""; LAST_BANK_OK=0
 for b in $POINTS; do
-    run_bench "$b" "$PP_N" "$TG_N" || { echo "  bank $b : échec (ignoré)"; continue; }
+    run_bench "$b" "$PP_N" "$TG_N" || { echo "  bank $b: failed (ignored)"; continue; }
     read -r pp tg hit <<<"$(measure)"
     ROWS="$ROWS  bank $b : tg=$tg pp=$pp hit=$hit\n"
     LAST_BANK_OK=$b
@@ -164,10 +164,10 @@ BEST_PP=\${BEST_PP:-$BEST_PP}
 BEST_HIT=\${BEST_HIT:-$BEST_HIT}
 EOF
 
-echo "== résumé =="
-echo "baseline off      : pp=$OFF_PP tg=$OFF_TG"
-echo "plafond bank      : $CEIL MiB (CTX=$CTX, KV≈${KV8} MiB/8k tokens)"
-echo "meilleur bank     : $BEST_BANK MiB → tg=$BEST_TG pp=$BEST_PP hit=$BEST_HIT"
-echo "écrit             : $OUT_ENV"
-echo "exemples          : MODEL=$MODEL PROFILE=$PROFILE tools/bench.sh static $([ "$HAS_NEXTN" -gt 0 ] && echo mtp)"
-echo "                  : tools/serve.sh   (qwen)   ou   tools/serve-lfm.sh   (lfm) — ils sourcent machine-$TAG.env"
+echo "== summary =="
+echo "off baseline      : pp=$OFF_PP tg=$OFF_TG"
+echo "bank ceiling      : $CEIL MiB (CTX=$CTX, KV≈${KV8} MiB/8k tokens)"
+echo "best bank         : $BEST_BANK MiB → tg=$BEST_TG pp=$BEST_PP hit=$BEST_HIT"
+echo "written           : $OUT_ENV"
+echo "examples          : MODEL=$MODEL PROFILE=$PROFILE tools/bench.sh static $([ "$HAS_NEXTN" -gt 0 ] && echo mtp)"
+echo "                  : tools/serve.sh   (qwen)   or   tools/serve-lfm.sh   (lfm) — they source machine-$TAG.env"

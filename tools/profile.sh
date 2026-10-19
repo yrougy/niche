@@ -22,9 +22,9 @@ TG_ROUNDS=${TG_ROUNDS:-2}
 CTX=${CTX:-8192}
 THREADS=${THREADS:-8}
 
-fail() { echo "ERREUR : $*" >&2; exit 1; }
-[ -x "$BIN" ] || fail "binaire $BIN absent"
-[ -f "$MODEL" ] || fail "modèle $MODEL absent"
+fail() { echo "error: $*" >&2; exit 1; }
+[ -x "$BIN" ] || fail "binary $BIN missing"
+[ -f "$MODEL" ] || fail "model $MODEL missing"
 
 mkdir -p /tmp/profile && rm -f "$LOG" "$OUT" "$OUT.tmp"
 
@@ -39,7 +39,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "=== démarrage llama-server (config off, profil -> $OUT) ==="
+echo "=== starting llama-server (off config, profile -> $OUT) ==="
 cd "$LLAMA"
 "$BIN" -m "$MODEL" --moe-profile-output "$OUT" --host 127.0.0.1 --port "$PORT" \
     -c "$CTX" -fa on --cache-type-k q4_0 --cache-type-v q4_0 -ub 512 \
@@ -49,11 +49,11 @@ SRV=$!
 
 for _ in $(seq 1 300); do
     curl -sf -o /dev/null "http://127.0.0.1:$PORT/health" && break
-    kill -0 "$SRV" 2>/dev/null || fail "serveur mort au démarrage — voir $LOG"
+    kill -0 "$SRV" 2>/dev/null || fail "server died at startup — see $LOG"
     sleep 2
 done
-curl -sf -o /dev/null "http://127.0.0.1:$PORT/health" || fail "serveur pas prêt — voir $LOG"
-echo "serveur prêt (pid $SRV)"
+curl -sf -o /dev/null "http://127.0.0.1:$PORT/health" || fail "server not ready — see $LOG"
+echo "server ready (pid $SRV)"
 
 req() {
     curl -s -X POST "http://127.0.0.1:$PORT/completion" \
@@ -69,7 +69,7 @@ req '{"prompt":"Hello.","max_tokens":16,"temperature":0,"stream":false}' > /tmp/
 echo "=== prompt processing ($PP_N tokens, max_tokens=1) ==="
 req "{\"prompt\":\"$LONGP\",\"max_tokens\":1,\"temperature\":0,\"stream\":false}" > /tmp/profile/pp.json
 
-echo "=== génération ($TG_N tokens x $TG_ROUNDS) ==="
+echo "=== generation ($TG_N tokens x $TG_ROUNDS) ==="
 for i in $(seq 1 "$TG_ROUNDS"); do
     req "{\"prompt\":\"Q: What is the capital of France? A:\",\"max_tokens\":$TG_N,\"temperature\":0,\"ignore_eos\":true,\"stream\":false}" > "/tmp/profile/tg$i.json"
 done
@@ -93,5 +93,5 @@ print("paires=%d couches=%d sum(count)=%d  min/max par couche=%d/%d" % (n, len(p
 print("tokens implicites (count/8) min/max par couche : %d/%d" % (vals[0]//8, vals[-1]//8))
 EOF
 else
-    echo "AUCUN CSV produit — voir $LOG"
+    echo "NO CSV produced — see $LOG"
 fi

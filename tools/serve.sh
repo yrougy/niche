@@ -31,7 +31,7 @@ BANK=${BANK_OVERRIDE:-$BANK}   # BANK_OVERRIDE=5120 tools/serve.sh pour forcer l
 [ -n "${BANK_MAX:-}" ] && [ "$BANK" -gt "$BANK_MAX" ] && BANK=$BANK_MAX   # plafond mesuré par calibrate.sh
 PIN=${PIN:-1990}
 
-echo "llama-server cache MoE : CTX=$CTX bank=${BANK} MiB http://$HOST:$PORT (Ctrl-C pour arrêter)"
+echo "llama-server MoE cache: CTX=$CTX bank=${BANK} MiB http://$HOST:$PORT (Ctrl-C to stop)"
 
 SPEC=""; [ "$MTP" = 1 ] && SPEC="--spec-type draft-mtp"
 CORSARGS=""; [ -n "${CORS:-}" ] && CORSARGS="--cors-origins $CORS"   # ex. CORS=http://hote:8002 pour autoriser une UI web distante

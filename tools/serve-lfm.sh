@@ -33,10 +33,10 @@ TEMP=${TEMP:-0.1}     # model card LFM2.5
 TOPK=${TOPK:-50}      # model card LFM2.5
 RPEN=${RPEN:-1.05}    # model card LFM2.5
 
-fail() { echo "ERREUR : $*" >&2; exit 1; }
-[ -x "$BIN" ] || fail "binaire $BIN absent — construire llama.cpp (branche moe-expert-cache)"
-[ -f "$MODEL" ] || fail "modèle $MODEL absent"
-[ -f "$PROFILE" ] || fail "profil $PROFILE absent — tools/profile.sh MODEL=$MODEL tools/prof-lfm.csv"
+fail() { echo "error: $*" >&2; exit 1; }
+[ -x "$BIN" ] || fail "binary $BIN missing — build llama.cpp (branch moe-expert-cache)"
+[ -f "$MODEL" ] || fail "model $MODEL missing"
+[ -f "$PROFILE" ] || fail "profile $PROFILE missing — tools/profile.sh MODEL=$MODEL tools/prof-lfm.csv"
 
 # plafond de bank mesuré sur cette machine : 6656 tient de CTX 8192 à 65536 ; à 131072 le plafond
 # tombe à ~6272 (6144 OK, 6400 OOM) → pente réelle ≈ 48 MiB/8k, on retire 64 MiB/8k (marge incluse).
@@ -49,7 +49,7 @@ fi
 BANK=${BANK_OVERRIDE:-$BANK}
 [ -n "${BANK_MAX:-}" ] && [ "$BANK" -gt "$BANK_MAX" ] && BANK=$BANK_MAX   # plafond mesuré par calibrate.sh
 
-echo "llama-server LFM2.5-24B-A2B cache MoE : CTX=$CTX bank=${BANK} MiB pin=${PIN} MiB http://$HOST:$PORT (Ctrl-C pour arrêter)"
+echo "llama-server LFM2.5-24B-A2B MoE cache: CTX=$CTX bank=${BANK} MiB pin=${PIN} MiB http://$HOST:$PORT (Ctrl-C to stop)"
 
 CORSARGS=""; [ -n "${CORS:-}" ] && CORSARGS="--cors-origins $CORS"   # ex. CORS=http://hote:8002 pour autoriser une UI web distante
 exec "$BIN" -m "$MODEL" \

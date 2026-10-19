@@ -27,36 +27,36 @@ ROOT = HERE.parent                              # le dépôt niche
 MODELS = [
     dict(tag="qwen", nom="Qwen3.6-35B-A3B", prefix="Qwen3.6-35B-A3B",
          repo="unsloth/Qwen3.6-35B-A3B-GGUF",
-         note="MoE 35B (3B actifs), tête MTP, ctx usuel 4-32k",
+         note="35B MoE (3B active), MTP head, usual ctx 4-32k",
          fallback=("Qwen3.6-35B-A3B-UD-IQ2_M.gguf", 10 * 2**30),
          serve="serve.sh", envfile="machine-qwen.env", mtp=True, ctx_defaut=4096,
-         ctxs=[(4096, "défaut du script, bank ~5632 mesuré sur ce PC"),
+         ctxs=[(4096, "script default, bank ~5632 measured on this machine"),
                (8192, "bank ~5120 (−512 MiB/8k)"),
                (16384, "bank ~4608"),
-               (32768, "bank coupé à 4096 minimum par serve.sh — surveiller le hit")],
-         mesure={"UD-IQ2_M": "tg 41,5 mesuré 12/10",
-                 "UD-Q2_K_XL": "palier viable mesuré : tg 40,3, qualité et acceptance MTP meilleures"},
-         evite={"UD-Q3_K_M": "mur mesuré tg 6,7 sur 15 GiB de RAM",
-                "UD-Q3_K_S": "mur mesuré tg 6,7 sur 15 GiB de RAM",
-                "UD-Q3_K_XL": "> 15 GiB : même mur que Q3_K_M",
-                "UD-IQ3_S": "> 12,7 GiB : vers le mur mesuré",
-                "UD-IQ3_XXS": "> 12,3 GiB : vers le mur mesuré"}),
+               (32768, "bank floored to 4096 by serve.sh — watch the hit rate")],
+         mesure={"UD-IQ2_M": "tg 41.5 measured 12/10",
+                 "UD-Q2_K_XL": "measured viable step: tg 40.3, better quality and MTP acceptance"},
+         evite={"UD-Q3_K_M": "measured wall tg 6.7 on 15 GiB RAM",
+                "UD-Q3_K_S": "measured wall tg 6.7 on 15 GiB RAM",
+                "UD-Q3_K_XL": "> 15 GiB: same wall as Q3_K_M",
+                "UD-IQ3_S": "> 12.7 GiB: near the measured wall",
+                "UD-IQ3_XXS": "> 12.3 GiB: near the measured wall"}),
     dict(tag="lfm", nom="LFM2.5-24B-A2B", prefix="LFM2.5-24B-A2B",
          repo="unsloth/LFM2.5-24B-A2B-GGUF",
-         note="MoE 24B (2B actifs), plateau 8k-64k, ctx max 131k",
+         note="24B MoE (2B active), flat 8k-64k, ctx max 131k",
          fallback=("LFM2.5-24B-A2B-UD-IQ3_XXS.gguf", 7 * 2**30),
          serve="serve-lfm.sh", envfile="machine-lfm.env", mtp=False, ctx_defaut=65536,
-         ctxs=[(8192, "plateau mesuré : bank 6656 de 8k à 64k"),
+         ctxs=[(8192, "measured plateau: bank 6656 from 8k to 64k"),
                (16384, "bank 6656 (plateau)"),
                (32768, "bank 6656 (plateau)"),
-               (65536, "défaut du script, plateau mesuré, bank 6656"),
-               (131072, "max natif du GGUF : bank 6144, tg −3 % (mesuré 16/10)")],
-         mesure={"UD-IQ3_XXS": "tg 47,2 mesuré 14/10 — config de référence de la machine"},
-         evite={"UD-Q4_K_XL": "> 13,8 GiB : hot set félerait sur 15 GiB de RAM",
-                "UD-Q5_K_XL": "> 16,6 GiB : ne tient pas en RAM",
-                "UD-Q6_K_XL": "> 20 GiB : ne tient pas en RAM",
-                "UD-Q8_0": "> 23,7 GiB : ne tient pas en RAM",
-                "UD-Q2_K_XL": "possible mais sous le palier qualité d'IQ3_XXS (mesuré)"}),
+               (65536, "script default, measured plateau, bank 6656"),
+               (131072, "GGUF native max: bank 6144, tg −3 % (measured 16/10)")],
+         mesure={"UD-IQ3_XXS": "tg 47.2 measured 14/10 — the machine's reference config"},
+         evite={"UD-Q4_K_XL": "> 13.8 GiB: hot set would crack on 15 GiB RAM",
+                "UD-Q5_K_XL": "> 16.6 GiB: does not fit in RAM",
+                "UD-Q6_K_XL": "> 20 GiB: does not fit in RAM",
+                "UD-Q8_0": "> 23.7 GiB: does not fit in RAM",
+                "UD-Q2_K_XL": "possible but below the IQ3_XXS quality step (measured)"}),
 ]
 BRANCHE = "moe-expert-cache"
 FORK = "https://github.com/yrougy/llama-moe-cache.git"
@@ -105,7 +105,7 @@ def hf_listing(ui, m) -> list | None:
         with urllib.request.urlopen(url, timeout=15) as r:
             ents = json.load(r)
     except Exception as e:
-        ui.warn(f"{m['tag']} : API HF injoignable ({e.__class__.__name__}) — repli sur le quant d'office.")
+        ui.warn(f"{m['tag']}: HF API unreachable ({e.__class__.__name__}) — falling back to the default quant.")
         return None
     out = [(e["path"], int(e.get("size", 0))) for e in ents
            if e.get("path", "").endswith(".gguf") and "/" not in e["path"] and "mmproj" not in e["path"]]
@@ -117,7 +117,7 @@ def budget_octets(info) -> tuple:
     pas la VRAM (le bank d'experts se règle au calibrage). Réserve : OS + KV + marge."""
     ram_gib = info.get("ram") or 16
     b = int((ram_gib - 3) * 2**30)
-    return b, f"RAM {ram_gib} GiB − 3 GiB (OS+KV+marge) ≈ {b / 2**30:.1f} GiB de hot set"
+    return b, f"RAM {ram_gib} GiB − 3 GiB (OS+KV+slack) ≈ {b / 2**30:.1f} GiB of hot set"
 
 
 def _label(m, f, s, b):
@@ -128,9 +128,9 @@ def _label(m, f, s, b):
     if q in m.get("evite", {}):
         lbl += f"  ⚠ {m['evite'][q]}"
     elif s > b:
-        lbl += "  ⚠ dépasse le budget hot set (mur mesuré au-delà)"
+        lbl += "  ⚠ over the hot-set budget (measured wall beyond)"
     elif s >= 0.95 * b:
-        lbl += "  (limite, compte serré)"
+        lbl += "  (tight fit, cut it close)"
     return lbl
 
 
@@ -140,8 +140,8 @@ def choix_quant(ui, m, info):
     b, expl = budget_octets(info)
     note_vram = ""
     if info.get("vram") is not None and info["vram"] < 4 * 1024:
-        note_vram = f" ⚠ GPU de {info['vram']} MiB : préfère un quant petit (moins de trafic PCIe)."
-    ui.say(f"{m['tag']} ({m['nom']}) : budget — {expl}.{note_vram}")
+        note_vram = f" ⚠ {info['vram']} MiB GPU: prefer a small quant (less PCIe traffic)."
+    ui.say(f"{m['tag']} ({m['nom']}): budget — {expl}.{note_vram}")
     fits = [(f, s) for f, s in lst if 0 < s <= b]
     reco = None
     if fits:
@@ -152,24 +152,24 @@ def choix_quant(ui, m, info):
                 break
     haut = fits[:2] if len(fits) >= 2 else fits
     choix = [_label(m, f, s, b) for f, s in haut]
-    choix += ["choisir un autre quant (liste complète)", "passer ce modèle"]
-    defaut = _label(m, *reco, b) if reco else "passer ce modèle"
-    c = ui.ask(f"{m['tag']} : quel quant descendre ?", choix, defaut)
-    if c in ("passer ce modèle", "choisir un autre quant (liste complète)"):
-        if c == "passer ce modèle":
+    choix += ["another quant (full list)", "skip this model"]
+    defaut = _label(m, *reco, b) if reco else "skip this model"
+    c = ui.ask(f"{m['tag']}: which quant to download?", choix, defaut)
+    if c in ("skip this model", "another quant (full list)"):
+        if c == "skip this model":
             return None
-        complet = [_label(m, f, s, b) for f, s in lst] + ["retour (passer)"]
-        c = ui.ask(f"{m['tag']} : liste complète ({len(lst)} quants, ⚠ = à éviter sur cette machine)",
-                   complet, complet[0] if lst else "retour (passer)")
-        if c == "retour (passer)":
+        complet = [_label(m, f, s, b) for f, s in lst] + ["back (skip)"]
+        c = ui.ask(f"{m['tag']}: full list ({len(lst)} quants, ⚠ = avoid on this machine)",
+                   complet, complet[0] if lst else "back (skip)")
+        if c == "back (skip)":
             return None
     for f, s in lst:
         if _label(m, f, s, b) == c:
             if s > b:
-                w = ui.ask(f"{f} dépasse le budget ({s / 2**30:.1f} GiB > {b / 2**30:.1f} GiB) — "
-                           f"le décodage s'effondrera si le hot set ne tient pas. Confirmer ?",
-                           ["confirmer quand même", "renoncer"], "renoncer")
-                if w == "renoncer":
+                w = ui.ask(f"{f} exceeds the budget ({s / 2**30:.1f} GiB > {b / 2**30:.1f} GiB) — "
+                           f"decoding will collapse if the hot set does not fit. Confirm?",
+                           ["confirm anyway", "give up"], "give up")
+                if w == "give up":
                     return None
             return (f, s)
     return None
@@ -180,21 +180,21 @@ def download(ui, m, fname: str, target: Path, minsize: int) -> bool:
     part = Path(str(target) + ".part")
     target.parent.mkdir(parents=True, exist_ok=True)
     url = f"https://huggingface.co/{m['repo']}/resolve/main/{fname}"
-    ui.say(f"{m['tag']} : {url}  ({target.name})")
-    ui.progress(f"en attente de {part.name}", 0.0)
+    ui.say(f"{m['tag']}: {url}  ({target.name})")
+    ui.progress(f"waiting for {part.name}", 0.0)
     rc = ui.run(["curl", "-L", "-C", "-", "--retry", "5", "--retry-delay", "3",
                  "-o", str(part), url])
     if ui.stop_flag.is_set():
         return False
     if rc != 0:
-        ui.fail("curl a échoué", "relancer l'outil : la reprise .part est automatique")
+        ui.fail("curl failed", "re-run the tool: .part resume is automatic")
         return False
     sz = part.stat().st_size if part.is_file() else 0
     if sz < minsize:
-        ui.fail(f"taille suspecte : {sz} octets (< {minsize})", "le dépôt HF a peut-être changé — vérifier l'URL")
+        ui.fail(f"suspicious size: {sz} bytes (< {minsize})", "the HF repo may have changed — check the URL")
         return False
     part.rename(target)
-    ui.ok(f"{m['tag']} : {sz // 2**20} MiB en place")
+    ui.ok(f"{m['tag']}: {sz // 2**20} MiB in place")
     return True
 
 
@@ -206,8 +206,8 @@ def ram_warn(ui, m, path: Path):
         return
     mib = path.stat().st_size // 2**20
     if mib > ram - 2048:
-        ui.warn(f"{mib} MiB de modèle pour {ram} MiB RAM dispo : le hot set va féler sur disque "
-                "(cliff mesuré tg ~7). Prendre un quant plus petit, ou libérer de la RAM.")
+        ui.warn(f"{mib} MiB model vs {ram} MiB free RAM: the hot set will crack on disk "
+                "(measured cliff tg ~7). Take a smaller quant, or free RAM.")
 
 
 def choix_modele(ui) -> list:
@@ -215,10 +215,10 @@ def choix_modele(ui) -> list:
     jamais les deux familles l'une après l'autre."""
     etat = {m["tag"]: deja_present(m) for m in MODELS}
     labels = [f"{m['tag']} — {m['nom']} ({m['note']})"
-              + (f" — poids déjà là : {etat[m['tag']].name}" if etat[m["tag"]] else "")
+              + (f" — weights already there: {etat[m['tag']].name}" if etat[m["tag"]] else "")
               for m in MODELS]
     defaut = next((i for i, m in enumerate(MODELS) if etat[m["tag"]]), 0)
-    c = ui.ask("quel modèle installer ?", labels, labels[defaut])
+    c = ui.ask("which model to install?", labels, labels[defaut])
     return [MODELS[labels.index(c)]]
 
 
@@ -229,37 +229,37 @@ def models_step(ui, info, mods: list) -> dict:
     for m in mods:
         deja = deja_present(m)
         if deja is not None and model_dir() in deja.parents:
-            ui.ok(f"{m['tag']} ({m['nom']}) : quant déjà présent, réutilisé — {deja.name}")
+            ui.ok(f"{m['tag']} ({m['nom']}): quant already present, reused — {deja.name}")
             q = quant_of(deja.name, m["prefix"])
             if q in m.get("evite", {}):
-                ui.warn(f"{m['tag']} : ce quant est marqué à éviter sur la machine de dev "
-                        f"({q} : {m['evite'][q]}) — un calibrage dira s'il tient ici, sinon choisis-en un autre.")
+                ui.warn(f"{m['tag']}: this quant is marked avoid on the dev machine "
+                        f"({q}: {m['evite'][q]}) — calibration will tell whether it fits here, otherwise pick another one.")
             prets[m["tag"]] = deja
             continue
         if deja is not None:                       # poids d'un quant trouvé dans une autre arborescence
-            ui.say(f"{m['tag']} ({m['nom']}) : poids trouvé ailleurs → {deja}")
+            ui.say(f"{m['tag']} ({m['nom']}): weights found elsewhere → {deja}")
             cible = model_dir() / deja.name
-            c = ui.ask(f"{m['tag']} : que faire de ce poids déjà téléchargé ({deja.name}) ?",
-                       ["lier dans le MODEL_DIR (lien symbolique, pas de copie)",
-                        "copier (doubles les octets)",
-                        "ignorer et choisir un quant adapté", "ne rien faire pour ce modèle"],
-                       "lier dans le MODEL_DIR (lien symbolique, pas de copie)")
-            if c.startswith("lier"):
+            c = ui.ask(f"{m['tag']}: what to do with these already-downloaded weights ({deja.name})?",
+                       ["link into MODEL_DIR (symlink, no copy)",
+                        "copy (doubles the bytes)",
+                        "ignore and pick a fitted quant", "do nothing for this model"],
+                       "link into MODEL_DIR (symlink, no copy)")
+            if c.startswith("link"):
                 cible.parent.mkdir(parents=True, exist_ok=True)
                 cible.symlink_to(deja)
-                ui.ok(f"lien : {cible} -> {deja}")
+                ui.ok(f"link: {cible} -> {deja}")
                 prets[m["tag"]] = cible
                 continue
-            if c.startswith("copier"):
+            if c.startswith("copy"):
                 cible.parent.mkdir(parents=True, exist_ok=True)
-                ui.progress(f"copie de {deja.name}", None)
+                ui.progress(f"copying {deja.name}", None)
                 if ui.run(["cp", "-f", str(deja), str(cible)]) == 0:
-                    ui.ok(f"copié dans {cible}")
+                    ui.ok(f"copied into {cible}")
                     prets[m["tag"]] = cible
                     continue
-                ui.fail("copie interrompue")
+                ui.fail("copy interrupted")
                 continue
-            if c == "ne rien faire pour ce modèle":
+            if c == "do nothing for this model":
                 continue
         # ni poids complet ni envie de celui trouvé : choisir un quant adapté et le descendre
         part = None
@@ -267,8 +267,8 @@ def models_step(ui, info, mods: list) -> dict:
             part = p
             break
         if part is not None:
-            ui.warn(f"{m['tag']} : téléchargement interrompu déjà là — {part.name}")
-            if ui.ask(f"{m['tag']} : reprendre ce téléchargement ?", ["reprendre", "passer"], "reprendre") == "passer":
+            ui.warn(f"{m['tag']}: interrupted download already there — {part.name}")
+            if ui.ask(f"{m['tag']}: resume this download?", ["resume", "skip"], "resume") == "skip":
                 continue
             fname = part.name[:-len(".part")]
             if download(ui, m, fname, model_dir() / fname, max(2**30, int(part.stat().st_size * 0.5))):
@@ -284,42 +284,42 @@ def models_step(ui, info, mods: list) -> dict:
         if download(ui, m, fname, cible, max(2**30, int(octets * 0.99))):
             prets[m["tag"]] = cible
             if quant_of(fname, m["prefix"]) != quant_of(m["fallback"][0], m["prefix"]):
-                ui.warn(f"{m['tag']} : quant différent du seed de {m['envfile']} — le profil de routage "
-                        "dépend du quant : refais un calibrage après téléchargement.")
+                ui.warn(f"{m['tag']}: quant differs from the seed in {m['envfile']} — the routing profile "
+                        "depends on the quant: re-run calibration after download.")
         if m["tag"] in prets:
             ram_warn(ui, m, prets[m["tag"]])
     if not prets:
-        ui.fail("aucun modèle prêt", "relance et choisis un quant (ou « choisir un autre quant »)")
+        ui.fail("no model ready", "relaunch and pick a quant (or 'another quant (full list)')")
     return prets
 
 
 def pc_checks(ui) -> dict:
     """état de la machine — des avertissements, jamais d'arrêt (comme setup.sh)."""
-    ui.say(f"dépôt niche : {ROOT}")
+    ui.say(f"niche repository: {ROOT}")
     llama = llama_dir()
     info = {}
     if (llama / ".git").is_dir():
         br = subprocess.run(["git", "-C", str(llama), "rev-parse", "--abbrev-ref", "HEAD"],
                             capture_output=True, text=True).stdout.strip()
         if br != BRANCHE:
-            ui.warn(f"{llama} est sur « {br} », pas « {BRANCHE} » : le cache MoE porté n'y est pas.")
+            ui.warn(f"{llama} is on '{br}', not '{BRANCHE}': the ported MoE cache is not in it.")
         else:
-            ui.ok(f"llama.cpp sur la bonne branche : {llama}")
+            ui.ok(f"llama.cpp on the right branch: {llama}")
     else:
-        ui.warn(f"{llama} n'est pas un dépôt git — l'étape Build proposera de cloner le port "
-                f"({FORK}, branche {BRANCHE}).")
+        ui.warn(f"{llama} is not a git repo — the Build step will offer to clone the port "
+                f"({FORK}, branch {BRANCHE}).")
     info["bin"] = llama / "build" / "bin" / "llama-server"
     if info["bin"].is_file():
-        ui.ok(f"binaire : {info['bin']}")
+        ui.ok(f"binary: {info['bin']}")
     else:
-        ui.warn("llama-server absent — étape Build.")
+        ui.warn("llama-server missing — Build step.")
     for tool in ("cmake", "curl"):
         if not shutil.which(tool):
-            ui.warn(f"{tool} absent — installer (étape Build/Modèles impossible).")
+            ui.warn(f"{tool} missing — install it (Build/Models steps impossible).")
     try:
         ram = int(subprocess.run("awk '/MemTotal/{print int($2/1024/1024)}' /proc/meminfo",
                                  shell=True, capture_output=True, text=True).stdout)
-        ui.ok(f"RAM totale : {ram} GiB")
+        ui.ok(f"total RAM: {ram} GiB")
         info["ram"] = ram
     except Exception:
         pass
@@ -334,48 +334,48 @@ def pc_checks(ui) -> dict:
             except Exception:
                 pass
         else:
-            ui.warn("nvidia-smi répond rien — pilote ?")
+            ui.warn("nvidia-smi answers nothing — driver?")
     else:
-        ui.warn("nvidia-smi absent : GGML ne verra pas de CUDA (build CPU → tg minuscule sur un MoE).")
+        ui.warn("nvidia-smi missing: GGML will see no CUDA (CPU build → tiny tg on a MoE).")
     return info
 
 
 def build_step(ui, info) -> bool:
     b = info["bin"]
     if b.is_file():
-        ui.ok(f"build déjà là : {b}")
+        ui.ok(f"build already there: {b}")
         return True
-    c = ui.ask("compiler llama.cpp (la build peut durer 10-30 min) ?", ["compiler", "passer"], "compiler")
-    if c != "compiler":
+    c = ui.ask("compile llama.cpp (the build may take 10-30 min)?", ["compile", "skip"], "compile")
+    if c != "compile":
         return b.is_file()
     if not (llama_dir() / "CMakeLists.txt").is_file():
         if llama_dir().exists() and any(llama_dir().iterdir()):
-            ui.fail(f"{llama_dir()} existe mais sans CMakeLists.txt — apporter le dépôt (branche {BRANCHE})")
+            ui.fail(f"{llama_dir()} exists but has no CMakeLists.txt — bring the repo (branch {BRANCHE})")
             return False
-        if ui.ask(f"cloner le port llama-moe-cache ({FORK}, ~450 Mo) ?", ["cloner", "passer"], "cloner") != "cloner":
+        if ui.ask(f"clone the port llama-moe-cache ({FORK}, ~450 MB)?", ["clone", "skip"], "clone") != "clone":
             return False
         if ui.run(["git", "clone", "-b", BRANCHE, "--single-branch", FORK, str(llama_dir())]) != 0:
-            ui.fail("git clone a échoué (réseau ?)")
+            ui.fail("git clone failed (network?)")
             return False
         info["bin"] = llama_dir() / "build" / "bin" / "llama-server"
     if not (llama_dir() / "build").exists():
         if ui.run(["cmake", "-S", str(llama_dir()), "-B", str(llama_dir() / "build")]) != 0:
-            ui.fail("cmake configure a échoué")
+            ui.fail("cmake configure failed")
             return False
     if ui.run(["cmake", "--build", str(llama_dir() / "build"), "-j", str(os.cpu_count() or 8)]) != 0:
-        ui.fail("build échouée")
+        ui.fail("build failed")
         return False
     if b.is_file():
-        ui.ok(f"binaire : {b}")
+        ui.ok(f"binary: {b}")
         return True
-    ui.fail("build finie sans llama-server — regarder les avertissements CUDA plus haut")
+    ui.fail("build finished with no llama-server — check the CUDA warnings above")
     return False
 
 
 def calibrate_step(ui, info, prets):
     """calibrate.sh par modèle : plafond de bank, pin, profil de routage → machine-<tag>.env."""
     if not prets or not info["bin"].is_file():
-        ui.warn("calibrage sauté (pas de modèle prêt ou pas de binaire)")
+        ui.warn("calibration skipped (no ready model or no binary)")
         return
     for m in MODELS:
         tag = m["tag"]
@@ -383,12 +383,12 @@ def calibrate_step(ui, info, prets):
             continue
         envf = HERE / m["envfile"]
         if envf.is_file():
-            ui.ok(f"{tag} : réglages déjà calibrés ({envf.name}) — relance un calibrage seulement si GPU/RAM changés ou si le quant a changé")
-        if ui.ask(f"calibrer {tag} (mesures de bank/pin/profil, ~10 min, GPU occupé) ?",
-                  ["calibrer", "passer"], "passer") == "calibrer":
+            ui.ok(f"{tag}: settings already calibrated ({envf.name}) — re-run calibration only if GPU/RAM changed or the quant changed")
+        if ui.ask(f"calibrate {tag} (bank/pin/profile measurements, ~10 min, GPU busy)?",
+                  ["calibrate", "skip"], "skip") == "calibrate":
             rc = ui.run([str(HERE / "calibrate.sh"), tag, str(prets[tag])], cwd=str(ROOT))
-            ui.ok(f"calibrage {tag} : {HERE / ('machine-' + tag + '.env')}") if rc == 0 else \
-                ui.fail(f"calibrate.sh {tag} a échoué (rc={rc})")
+            ui.ok(f"calibration {tag}: {HERE / ('machine-' + tag + '.env')}") if rc == 0 else \
+                ui.fail(f"calibrate.sh {tag} failed (rc={rc})")
 
 
 def ctx_choix(ui, m):
@@ -399,7 +399,7 @@ def ctx_choix(ui, m):
     labels = [f"{n} tokens" + (f"  ({note})" if note else "") for n, note in ctxs]
     pairs = dict(zip(labels, (n for n, _ in ctxs)))
     defaut = next((l for l in labels if l.startswith(f"{m['ctx_defaut']} tokens")), labels[0])
-    c = ui.ask(f"{m['tag']} : quelle taille de contexte ? (contexte ↑ = bank d'experts ↓)",
+    c = ui.ask(f"{m['tag']}: which context size? (context ↑ = expert bank ↓)",
                labels, defaut)
     return pairs.get(c, m.get("ctx_defaut"))
 
@@ -407,13 +407,13 @@ def ctx_choix(ui, m):
 def ready_step(ui, info, prets):
     """le menu final : démarrer le serveur sur le quant installé (MODEL forcé), ou revenir en arrière."""
     while not ui.stop_flag.is_set():
-        choix = [f"démarrer le serveur {m['tag']} ({m['serve']})" for m in MODELS if m["tag"] in prets]
-        choix += ["repasser le calibrage", "quitter"]
-        c = ui.ask("Prêt. Que faire ?", choix, choix[0])
-        if c == "quitter":
+        choix = [f"start the {m['tag']} server ({m['serve']})" for m in MODELS if m["tag"] in prets]
+        choix += ["run calibration again", "quit"]
+        c = ui.ask("Ready. What to do?", choix, choix[0])
+        if c == "quit":
             return
         for m in MODELS:
-            if c.startswith(f"démarrer le serveur {m['tag']}"):
+            if c.startswith(f"start the {m['tag']} server"):
                 if info["bin"].is_file():
                     env = dict(os.environ, MODEL=str(prets[m["tag"]]))
                     n = ctx_choix(ui, m)
@@ -421,21 +421,21 @@ def ready_step(ui, info, prets):
                         env["CTX"] = str(n)
                     ui.run([str(HERE / m["serve"])], cwd=str(ROOT), env=env)
                 break
-        if c == "repasser le calibrage":
+        if c == "run calibration again":
             calibrate_step(ui, info, prets)
 
 
 def body(ui):
     """la suite complète des étapes ; le TUI la lance dans un thread, --plain la court devant."""
-    ui.step(1, "Ordinateur")
+    ui.step(1, "Machine")
     info = pc_checks(ui)
-    ui.step(2, "Modèle")
+    ui.step(2, "Model")
     prets = models_step(ui, info, choix_modele(ui))
     ui.step(3, "Build")
     built = build_step(ui, info)
-    ui.step(4, "Calibrage")
+    ui.step(4, "Calibration")
     calibrate_step(ui, info, prets if built else {})
-    ui.step(5, "Prêt")
+    ui.step(5, "Ready")
     if built and prets:
         ready_step(ui, info, prets)
     ui._note("end")

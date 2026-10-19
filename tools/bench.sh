@@ -39,17 +39,17 @@ SPEC=""
 [ "${2:-}" = mtp ] && SPEC="--spec-type draft-mtp"
 PORT=${PORT:-8002}
 
-fail() { echo "ERREUR : $*" >&2; exit 1; }
-[ -x "$BIN" ] || fail "binaire $BIN absent — construire llama.cpp sur moe-expert-cache"
-[ -f "$MODEL" ] || fail "modèle $MODEL absent"
-case "$MODE" in off) ;; *) [ -f "$PROFILE" ] || fail "profil $PROFILE absent (chemin absolu conseillé — le serveur ne résout pas les chemins relatifs)" ;; esac
+fail() { echo "error: $*" >&2; exit 1; }
+[ -x "$BIN" ] || fail "binary $BIN missing — build llama.cpp on moe-expert-cache"
+[ -f "$MODEL" ] || fail "model $MODEL missing"
+case "$MODE" in off) ;; *) [ -f "$PROFILE" ] || fail "profile $PROFILE missing (absolute path advised — the server does not resolve relative paths)" ;; esac
 
 case "$MODE" in
     fb)     BASE="-ngl 99 -cmoe"; CACHE="--moe-cache-mib $CACHE_MIB --moe-profile $PROFILE --moe-cache-static --moe-cache-cpu-fallback --moe-cache-pin-mib 1990"; [ "$TAIL_SKIP" != 0 ] && CACHE="$CACHE --moe-cache-tail-skip $TAIL_SKIP"; [ "$ADAPT" != 0 ] && CACHE="$CACHE --moe-cache-adapt $ADAPT" ;;
     static) BASE="-ngl 99 -cmoe"; CACHE="--moe-cache-mib $CACHE_MIB --moe-profile $PROFILE --moe-cache-static --moe-cache-pin-mib 1990"; [ "$TAIL_SKIP" != 0 ] && CACHE="$CACHE --moe-cache-tail-skip $TAIL_SKIP" ;;
     lru)    BASE="-ngl 99 -cmoe"; CACHE="--moe-cache-mib $CACHE_MIB --moe-profile $PROFILE"; [ "$TAIL_SKIP" != 0 ] && CACHE="$CACHE --moe-cache-tail-skip $TAIL_SKIP" ;;
     off)    BASE=""; CACHE="" ;;
-    *) fail "mode inconnue : $MODE (fb|static|lru|off)" ;;
+    *) fail "unknown mode: $MODE (fb|static|lru|off)" ;;
 esac
 
 mkdir -p "$OUT" && rm -f "$OUT"/*
@@ -57,9 +57,9 @@ MON=$OUT/monitor.txt
 LOG=$OUT/server.log
 
 if [ "${COLD:-0}" = 1 ]; then
-    if [ "$(id -u)" = 0 ]; then sync; echo 3 > /proc/sys/vm/drop_caches; echo "page cache vidé"
-    elif sudo -n sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null; then echo "page cache vidé (sudo)"
-    else echo "AVERTISSEMENT : pas root, page cache non vidé"
+    if [ "$(id -u)" = 0 ]; then sync; echo 3 > /proc/sys/vm/drop_caches; echo "page cache cleared"
+    elif sudo -n sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null; then echo "page cache cleared (sudo)"
+    else echo "WARNING: not root, page cache not cleared"
     fi
 fi
 
@@ -75,7 +75,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "=== démarrage llama-server (mode : $MODE${TAIL_SKIP:+ tail-skip $TAIL_SKIP}${SPEC:++ MTP}) ==="
+echo "=== starting llama-server (mode: $MODE${TAIL_SKIP:+ tail-skip $TAIL_SKIP}${SPEC:++ MTP}) ==="
 cd "$LLAMA"
 VFLAG=""; [ "$VERB" = 1 ] && VFLAG="-v"
 "$BIN" -m "$MODEL" $BASE $CACHE $SPEC $VFLAG --host 127.0.0.1 --port "$PORT" \
@@ -86,11 +86,11 @@ SRV=$!
 
 for _ in $(seq 1 300); do
     curl -sf -o /dev/null "http://127.0.0.1:$PORT/health" && break
-    kill -0 "$SRV" 2>/dev/null || fail "serveur mort au démarrage — voir $LOG"
+    kill -0 "$SRV" 2>/dev/null || fail "server died at startup — see $LOG"
     sleep 2
 done
-curl -sf -o /dev/null "http://127.0.0.1:$PORT/health" || fail "serveur pas prêt (chargement > 10 min ?) — voir $LOG"
-echo "serveur prêt (pid $SRV, port $PORT)"
+curl -sf -o /dev/null "http://127.0.0.1:$PORT/health" || fail "server not ready (load > 10 min?) — see $LOG"
+echo "server ready (pid $SRV, port $PORT)"
 
 # moniteur d'I/O : majflt du serveur + lectures disque (sda)
 (
@@ -131,7 +131,7 @@ echo "=== warmup (16 tokens) ==="
 req '{"prompt":"Hello.","max_tokens":16,"temperature":0,"stream":false}' > "$OUT/warmup.json"
 
 if [ "$DEPTH" -gt 0 ]; then
-    echo "=== remplissage KV ($DEPTH tokens) ==="
+    echo "=== KV fill ($DEPTH tokens) ==="
     req "{\"prompt\":\"$DEEPP\",\"max_tokens\":1,\"temperature\":0,\"stream\":false}" > "$OUT/depth.json"
     show "$OUT/depth.json"
 fi
@@ -140,28 +140,28 @@ echo "=== prompt processing ($PP_N tokens, max_tokens=1) ==="
 req "{\"prompt\":\"$LONGP\",\"max_tokens\":1,\"temperature\":0,\"stream\":false}" > "$OUT/pp.json"
 show "$OUT/pp.json"
 
-echo "=== génération ($TG_N tokens, ignore_eos) ==="
+echo "=== generation ($TG_N tokens, ignore_eos) ==="
 req "{\"prompt\":\"Q: What is the capital of France? A:\",\"max_tokens\":$TG_N,\"temperature\":0,\"ignore_eos\":true,\"stream\":false}" > "$OUT/tg.json"
 show "$OUT/tg.json"
 
 cleanup; SRV=""; WATCHPID=""
 
 echo
-echo "=== Résumé de la session ==="
+echo "=== session summary ==="
 if [ -s "$OUT/stats.csv" ]; then
-    echo "--- stats cache (--moe-stats CSV) ---"
+    echo "--- cache stats (--moe-stats CSV) ---"
     cat "$OUT/stats.csv"
 fi
 grep -Ei "hit rate" "$LOG" | tail -5
 if [ -n "$SPEC" ]; then
-    echo "--- acceptance du draft MTP (log) ---"
+    echo "--- MTP draft acceptance (log) ---"
     grep -Ei "accept|draft" "$LOG" | tail -5
 fi
 if [ -s "$MON" ]; then
-    echo "--- I/O sur toute la session (moniteur 2 s) ---"
+    echo "--- I/O over the whole session (2 s monitor) ---"
     awk '{split($3,a,"="); split($4,c,"=")}
          NR==1{m0=a[2]; d0=c[2]}
          {m=a[2]; d=c[2]}
          END{printf "majflt delta = %d, lectures disque = %.2f MiB, samples = %d\n", m-m0, (d-d0)/1048576, NR}' "$MON"
 fi
-echo "Fichiers : $LOG, $MON, $OUT/{warmup,pp,tg}.json"
+echo "files: $LOG, $MON, $OUT/{warmup,pp,tg}.json"

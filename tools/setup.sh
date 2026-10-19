@@ -18,14 +18,14 @@ MODEL_DIR=${MODEL_DIR:-$HERE/models}
 FORK=${FORK:-https://github.com/yrougy/llama-moe-cache.git}
 WHICH=${1:-qwen}
 
-fail() { echo "ERREUR : $*" >&2; exit 1; }
+fail() { echo "error: $*" >&2; exit 1; }
 
 # catalogue : tag -> repo huggingface, fichier, taille minimale de décence
 model_info() {
     case "$1" in
         qwen) REPO=unsloth/Qwen3.6-35B-A3B-GGUF;   FILE=Qwen3.6-35B-A3B-UD-IQ2_M.gguf;   MINSIZE=$((10*1024*1024*1024)) ;;
         lfm)  REPO=unsloth/LFM2.5-24B-A2B-GGUF;    FILE=LFM2.5-24B-A2B-UD-IQ3_XXS.gguf;  MINSIZE=$((7*1024*1024*1024)) ;;
-        *) fail "modèle inconnu : $1 (choix : qwen, lfm, both)" ;;
+        *) fail "unknown model: $1 (choices: qwen, lfm, both)" ;;
     esac
 }
 
@@ -33,20 +33,20 @@ model_info() {
 if [ -d "$LLAMA/.git" ]; then
     BRANCH=$(git -C "$LLAMA" rev-parse --abbrev-ref HEAD)
     if [ "$BRANCH" != "moe-expert-cache" ]; then
-        echo "ATTENTION : $LLAMA est sur '$BRANCH', pas 'moe-expert-cache' — le cache MoE porté n'y est pas." >&2
+        echo "WARNING: $LLAMA is on '$BRANCH', not 'moe-expert-cache' — the ported MoE cache is not in it." >&2
     fi
 elif [ ! -e "$LLAMA" ]; then
-    echo "clonage du port : $FORK (branche moe-expert-cache) -> $LLAMA"
-    git clone -b moe-expert-cache --single-branch "$FORK" "$LLAMA" || fail "git clone a échoué (réseau ? URL ?)"
+    echo "cloning the port: $FORK (branch moe-expert-cache) -> $LLAMA"
+    git clone -b moe-expert-cache --single-branch "$FORK" "$LLAMA" || fail "git clone failed (network? URL?)"
 else
-    echo "ATTENTION : $LLAMA existe mais n'est pas un dépôt git — vider ce chemin laisserait setup.sh cloner le port ($FORK)." >&2
+    echo "WARNING: $LLAMA exists but is not a git repo — empty that path and setup.sh will clone the port ($FORK)." >&2
 fi
 if [ "${SKIP_BUILD:-0}" != 1 ]; then
-    [ -d "$LLAMA/build" ] || cmake -S "$LLAMA" -B "$LLAMA/build" ${CMAKE_EXTRA:-} || fail "cmake configure a échoué"
-    cmake --build "$LLAMA/build" -j"$(nproc)" || fail "build llama.cpp a échoué"
+    [ -d "$LLAMA/build" ] || cmake -S "$LLAMA" -B "$LLAMA/build" ${CMAKE_EXTRA:-} || fail "cmake configure failed"
+    cmake --build "$LLAMA/build" -j"$(nproc)" || fail "llama.cpp build failed"
 fi
-[ -x "$LLAMA/build/bin/llama-server" ] || fail "llama-server absent dans $LLAMA/build/bin"
-echo "binaire OK : $LLAMA/build/bin/llama-server"
+[ -x "$LLAMA/build/bin/llama-server" ] || fail "llama-server missing in $LLAMA/build/bin"
+echo "binary OK: $LLAMA/build/bin/llama-server"
 
 # ---------- 2. modèles ----------
 install_model() {
@@ -54,29 +54,29 @@ install_model() {
     local target="$MODEL_DIR/$FILE"
     mkdir -p "$MODEL_DIR"
     if [ -f "$target" ]; then
-        echo "$1 : $target existe déjà ($(stat -c %s "$target") octets) — téléchargement sauté"
+        echo "$1: $target already exists ($(stat -c %s "$target") bytes) — download skipped"
     elif [ "${SKIP_DOWNLOAD:-0}" = 1 ]; then
-        echo "$1 : SKIP_DOWNLOAD=1 mais $target absent — calibrate sera impossible" ; return 1
+        echo "$1: SKIP_DOWNLOAD=1 but $target missing — calibrate will be impossible" ; return 1
     else
         local url="https://huggingface.co/$REPO/resolve/main/$FILE"
-        echo "$1 : téléchargement $url -> $target (reprise automatique si .part existant)"
-        curl -L -C - --retry 5 --retry-delay 3 -o "$target.part" "$url" || { echo "ERREUR : curl a échoué (relancer setup.sh pour reprendre)" >&2; return 1; }
+        echo "$1: downloading $url -> $target (auto-resume if .part exists)"
+        curl -L -C - --retry 5 --retry-delay 3 -o "$target.part" "$url" || { echo "error: curl failed (re-run setup.sh to resume)" >&2; return 1; }
         local sz=$(stat -c %s "$target.part")
-        [ "$sz" -ge "$MINSIZE" ] || { echo "ERREUR : taille suspecte ($sz octets)" >&2; return 1; }
+        [ "$sz" -ge "$MINSIZE" ] || { echo "error: suspicious size ($sz bytes)" >&2; return 1; }
         mv "$target.part" "$target"
     fi
     local mib=$(( $(stat -c %s "$target") / 1048576 )) ram=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo)
     if [ "$mib" -gt $(( ram - 2048 )) ]; then
-        echo "ATTENTION : ${mib} MiB de modèle pour ${ram} MiB RAM dispo — le hot set va feler sur disque (cliff mesuré type tg 6,7). Quant plus bas recommandé." >&2
+        echo "WARNING: ${mib} MiB model vs ${ram} MiB free RAM — the hot set will crack on disk (measured cliff e.g. tg 6.7). Lower quant recommended." >&2
     fi
-    echo "$1 : prêt ($mib MiB)"
+    echo "$1: ready ($mib MiB)"
 }
 
 run_calibrate() {
     model_info "$1"
-    [ "${SKIP_CALIB:-0}" = 1 ] && { echo "$1 : calibrate sauté (SKIP_CALIB=1)"; return 0; }
+    [ "${SKIP_CALIB:-0}" = 1 ] && { echo "$1: calibrate skipped (SKIP_CALIB=1)"; return 0; }
     CTX=${CTX:-8192} PP_N=${PP_N:-2048} TG_N=${TG_N:-256} \
-        "$HERE/tools/calibrate.sh" "$1" "$MODEL_DIR/$FILE" || fail "calibrate($1) a échoué"
+        "$HERE/tools/calibrate.sh" "$1" "$MODEL_DIR/$FILE" || fail "calibrate($1) failed"
 }
 
 case "$WHICH" in
@@ -85,7 +85,7 @@ case "$WHICH" in
 esac
 
 echo
-echo "setup terminé. Relancer la config calibrée :"
-echo "  qwen : tools/serve.sh            (lit tools/machine-qwen.env s'il existe)"
-echo "  lfm  : tools/serve-lfm.sh        (lit tools/machine-lfm.env s'il existe)"
-echo "  rebench : tools/bench.sh static   avec MODEL/PROFILE exportés"
+echo "setup done. Relaunch the calibrated config:"
+echo "  qwen : tools/serve.sh            (sources tools/machine-qwen.env if present)"
+echo "  lfm  : tools/serve-lfm.sh        (sources tools/machine-lfm.env if present)"
+echo "  rebench: tools/bench.sh static   with MODEL/PROFILE exported"
