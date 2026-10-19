@@ -24,7 +24,7 @@ from textual.widgets.option_list import Option
 
 ROOT = Path(__file__).resolve().parent.parent      # le dépôt niche (coin haut droit)
 
-STEPS = {1: "Ordinateur", 2: "Modèles", 3: "Build", 4: "Calibrage", 5: "Prêt"}
+STEPS = {1: "Ordinateur", 2: "Modèle", 3: "Build", 4: "Calibrage", 5: "Prêt"}
 SPLASH = "Niche — installeur du port cache-MoE pour llama.cpp"
 
 CSS = """

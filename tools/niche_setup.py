@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """niche_setup — le moteur sans écran du port cache-MoE niche : état de la machine,
-choix d'une QUANTIZATION ADAPTÉE À LA MACHINE pour LFM2.5 ou Qwen3.6-35B (l'API HF
+choix du MODÈLE (un seul à la fois : Qwen3.6-35B-A3B ou LFM2.5-24B-A2B) puis d'une
+QUANTIZATION ADAPTÉE À LA MACHINE (l'API HF
 donne la liste et les tailles exactes ; le budget est le hot set RAM, pas la VRAM —
 cliff mesuré 12/10 : au-delà, le tail chaud faulte sur disque, tg ~7), réutilisation
 des poids déjà présents, reprise .part, build, calibrage, serveur. Le moteur ne parle
@@ -26,6 +27,7 @@ ROOT = HERE.parent                              # le dépôt niche
 MODELS = [
     dict(tag="qwen", nom="Qwen3.6-35B-A3B", prefix="Qwen3.6-35B-A3B",
          repo="unsloth/Qwen3.6-35B-A3B-GGUF",
+         note="MoE 35B (3B actifs), tête MTP, ctx usuel 4-32k",
          fallback=("Qwen3.6-35B-A3B-UD-IQ2_M.gguf", 10 * 2**30),
          serve="serve.sh", envfile="machine-qwen.env", mtp=True, ctx_defaut=4096,
          ctxs=[(4096, "défaut du script, bank ~5632 mesuré sur ce PC"),
@@ -41,6 +43,7 @@ MODELS = [
                 "UD-IQ3_XXS": "> 12,3 GiB : vers le mur mesuré"}),
     dict(tag="lfm", nom="LFM2.5-24B-A2B", prefix="LFM2.5-24B-A2B",
          repo="unsloth/LFM2.5-24B-A2B-GGUF",
+         note="MoE 24B (2B actifs), plateau 8k-64k, ctx max 131k",
          fallback=("LFM2.5-24B-A2B-UD-IQ3_XXS.gguf", 7 * 2**30),
          serve="serve-lfm.sh", envfile="machine-lfm.env", mtp=False, ctx_defaut=65536,
          ctxs=[(8192, "plateau mesuré : bank 6656 de 8k à 64k"),
@@ -207,10 +210,23 @@ def ram_warn(ui, m, path: Path):
                 "(cliff mesuré tg ~7). Prendre un quant plus petit, ou libérer de la RAM.")
 
 
-def models_step(ui, info) -> dict:
-    """le coeur : quant adapté à la machine, réutilisation des poids présents, téléchargement repris."""
+def choix_modele(ui) -> list:
+    """on installe UN modèle à la fois : on demande lequel d'abord, on ne descend
+    jamais les deux familles l'une après l'autre."""
+    etat = {m["tag"]: deja_present(m) for m in MODELS}
+    labels = [f"{m['tag']} — {m['nom']} ({m['note']})"
+              + (f" — poids déjà là : {etat[m['tag']].name}" if etat[m["tag"]] else "")
+              for m in MODELS]
+    defaut = next((i for i, m in enumerate(MODELS) if etat[m["tag"]]), 0)
+    c = ui.ask("quel modèle installer ?", labels, labels[defaut])
+    return [MODELS[labels.index(c)]]
+
+
+def models_step(ui, info, mods: list) -> dict:
+    """le coeur : quant adapté à la machine, réutilisation des poids présents, téléchargement
+    repris — pour le(s) modèle(s) choisi(s) uniquement."""
     prets = {}
-    for m in MODELS:
+    for m in mods:
         deja = deja_present(m)
         if deja is not None and model_dir() in deja.parents:
             ui.ok(f"{m['tag']} ({m['nom']}) : quant déjà présent, réutilisé — {deja.name}")
@@ -413,8 +429,8 @@ def body(ui):
     """la suite complète des étapes ; le TUI la lance dans un thread, --plain la court devant."""
     ui.step(1, "Ordinateur")
     info = pc_checks(ui)
-    ui.step(2, "Modèles")
-    prets = models_step(ui, info)
+    ui.step(2, "Modèle")
+    prets = models_step(ui, info, choix_modele(ui))
     ui.step(3, "Build")
     built = build_step(ui, info)
     ui.step(4, "Calibrage")

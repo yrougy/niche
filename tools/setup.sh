@@ -1,7 +1,7 @@
 #!/bin/bash
 # setup.sh — préparer une machine pour le port cache-MoE niche : build du port, téléchargement
 # des modèles, mesure des paramètres (bank max, pin, profil de routage) via calibrate.sh.
-# Usage : tools/setup.sh [qwen|lfm|both]   (défaut : both)
+# Usage : tools/setup.sh [qwen|lfm|both]   (défaut : qwen — un seul modèle, both pour les deux)
 # Env :
 #   MODEL_DIR   répertoire d'installation des GGUF (défaut $HERE/models)
 #   LLAMA       checkout llama.cpp de la branche moe-expert-cache (défaut $HERE/llama.cpp,
@@ -16,7 +16,7 @@ HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
 LLAMA=${LLAMA:-$HERE/llama.cpp}
 MODEL_DIR=${MODEL_DIR:-$HERE/models}
 FORK=${FORK:-https://github.com/yrougy/llama-moe-cache.git}
-WHICH=${1:-both}
+WHICH=${1:-qwen}
 
 fail() { echo "ERREUR : $*" >&2; exit 1; }
 

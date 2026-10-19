@@ -25,7 +25,9 @@ The installer walks through, and reuses anything already present:
 2. **Build** — clones the fork automatically (branch `moe-expert-cache`) into
    `./llama.cpp` if `$LLAMA` is absent. The clone and the model directory `./models`
    are git-ignored, so nothing nested can pollute or recurse into this repository.
-3. **Models** — picks the GGUF quant that fits the machine: it queries the Hugging Face
+3. **Model** — asks first which model to install: Qwen3.6-35B-A3B or LFM2.5-24B-A2B,
+   one at a time — the other is never pulled alongside. It then picks the GGUF quant
+   that fits the machine: it queries the Hugging Face
    API for real file sizes, computes a budget of `MemTotal − 3 GiB` (the constraint is
    the hot set in RAM, not VRAM), and prefers a quant whose quality step was already
    measured. Downloads resume from `.part`.
