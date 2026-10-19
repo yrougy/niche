@@ -13,7 +13,9 @@ ENVFILE=${ENVFILE:-$HERE/tools/machine-qwen.env}   # tools/calibrate.sh qwen …
 [ -f "$ENVFILE" ] && source "$ENVFILE"
 MODEL=$(realpath -m "${MODEL:-$HERE/models/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}")
 PROFILE=$(realpath -m "${PROFILE:-$HERE/tools/prof3.csv}")
-MTP=${MTP:-1}   # MTP=0 pour les modèles sans tête MTP (ex. LFM2.5)
+# tête MTP : honorée seulement si le GGUF a des couches nextn (calibrate.sh sonde le
+# header et écrit MODEL_HAS_NEXTN). MTP=0/1 à l'export force malgré tout.
+MTP=${MTP:-${MODEL_HAS_NEXTN:-1}}
 HOST=0.0.0.0
 PORT=8002
 
