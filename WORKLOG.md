@@ -252,3 +252,22 @@ Benchs (CTX 8192, PP_N 4096, TG_N 256, seed prof-lfm.csv) :
 
 ###CTX demandé au menu Prêt (18/10)
 - `niche_setup.ctx_choix` : question « quelle taille de contexte ? » avant chaque démarrage serveur, options annotées des pentes bank mesurées (qwen : 4k défaut bank ~5632, −512 MiB/8k, plancher 4096 ; lfm : plateau 6656 de 8k→64k, 131072 max natif → bank 6144 tg −3 %). Le choix passe en `CTX=` exporté (les serve*.sh dérivent le bank du CTX). Défaut = celui du script.
+
+## Généralisation de l'adaptation de tier au static sans CPU fallback (19/10 soir)
+
+`--moe-cache-adapt` (f46abcd69, 18/10) exigeait static+cpu_fallback. Or le serveur de prod tourne en
+static SANS fb (scratch LRU + uploads, hiérarchie mesurée 12/10 : static > fb sur cette machine, upload
+80 µs < CPU ≥100 µs). Patch 0813f9445 : gate élargi à static seul ; dans copy(), le re-rank du premier
+layer du groupe part avant tout plan() du batch (l'expert démote devient -1 → candidate du scratch LRU
+à la prochaine sélection). promote = upload async dans le slot démote (inchangé).
+
+A/B Qwen :8003 (draft-mtp, prompt B "diesel engine" = hors profil prof3, 3×1200 tok, temp 0) :
+- static seul (prod)     : tg 39,0-40,7 ; hit 77,7 %
+- static+fb+adapt 512    : tg 26,3→36,3 (converge) ; hit 95,4 % — meilleur que fb seul mais sous static
+- static+adapt 512 (patch): tg 40,9→42,2 ; hit 92,9 % — **+8 % tg vs prod**
+- trafic apparié (rep 700×3) : adapt tg 53,3-54,3 vs baseline 52,5-53,5 (variations) ; **0 swap**, neutre.
+Le cap q/4/round converge vite (216 swaps r1 → ~4 ensuite). Output bit-identique : la résidence ne
+change pas les valeurs calculées (GPU dans les deux cas), contrairement au fb.
+
+Exposé : ADAPT= (défaut 512) dans serve.sh et serve-lfm.sh ; ADAPT=0 désactive. ⚠️ servir ADAPT sur
+un binaire public exige le push du commit llama.cpp 0813f9445 (sinon flag inconnu = échec au démarrage).

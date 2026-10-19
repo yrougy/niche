@@ -10,11 +10,14 @@
 # depuis le 19/10 (mesure A/B, trafic répétitif de type session de code : tg 52 → 126, hit
 # MoE à peine entamé 95→94 % ; coût seule requête à froid −7 %). SPEC=none (ou SPEC=) pour
 # désactiver, SPEC=ngram-simple|ngram-map-k|ngram-cache pour une autre politique.
+# Adaptation de la tier par chaleur vivante (--moe-cache-adapt) par DÉFAUT à 512 depuis le 19/10 :
+# le seed profilé est ré-ranké tous les 512 tokens cachés ; neutre sur trafic apparié (0 swap),
+# +8 % tg et hit 78→93 % sur trafic hors profil (A/B Qwen prompt diesel, swaps convergent à ~4/round).
 # Multi-tour : réutilisation du KV déjà active par défaut (idle slot + -cram 8192) ; mesure
 # 19/10 : tours 2+ ≈ 100 tokens pp, branche (reroll/édition) ≈ 55 — pas besoin de --cache-reuse.
 # Note : le template chat LFM2.5 active le mode raisonnement par défaut → la sortie textuelle
 # arrive dans reasoning_content du JSON, content peut rester vide (test API 14/10/2026).
-# Env : CTX (65536), BANK_OVERRIDE, MODEL, PROFILE, PIN, PORT, HOST, SPEC (ngram-mod),
+# Env : CTX (65536), BANK_OVERRIDE, MODEL, PROFILE, PIN, PORT, HOST, SPEC (ngram-mod), ADAPT (512),
 #       ENVFILE=tools/machine-lfm.env,
 #       MOE_STATS=/tmp/moe-stats-lfm.csv (csv hit rate par couche/expert : écrit au chargement,
 #       compteurs finaux flushés à l'arrêt propre SIGINT/Ctrl-C)
@@ -41,6 +44,8 @@ RPEN=${RPEN:-1.05}    # model card LFM2.5
 
 SPEC=${SPEC:-ngram-mod}
 SPECARGS=""; [ -n "$SPEC" ] && SPECARGS="--spec-type $SPEC"
+ADAPT=${ADAPT-512}   # --moe-cache-adapt N : ré-rankage live de la tier semée par le profil tous les N tokens cachés ; ADAPT=0 désactive
+ADAPTARGS=""; [ "${ADAPT:-0}" -ge 1 ] 2>/dev/null && ADAPTARGS="--moe-cache-adapt $ADAPT"
 
 fail() { echo "error: $*" >&2; exit 1; }
 [ -x "$BIN" ] || fail "binary $BIN missing — build llama.cpp (branch moe-expert-cache)"
@@ -64,7 +69,7 @@ CORSARGS=""; [ -n "${CORS:-}" ] && CORSARGS="--cors-origins $CORS"   # ex. CORS=
 exec "$BIN" -m "$MODEL" \
     -ngl 99 -cmoe \
     --moe-cache-mib "$BANK" --moe-profile "$PROFILE" --moe-cache-static --moe-cache-pin-mib "$PIN" \
-    $SPECARGS \
+    $ADAPTARGS $SPECARGS \
     --moe-stats "$MOE_STATS" \
     --host "$HOST" --port "$PORT" \
     -c "$CTX" -fa on --cache-type-k q4_0 --cache-type-v q4_0 -ub 512 \

@@ -4,6 +4,10 @@
 # Config de référence : static bank 5632 + MTP à CTX 4096 → tg ~39,8 / pp ~446.
 # Spec : SPEC= vaut pour --spec-type (liste virgules autorisée, ex. SPEC=draft-mtp,ngram-mod) ;
 # défaut : draft-mtp si MODEL_HAS_NEXTN, sinon rien. SPEC=none désactive toute spec.
+# Adapt : --moe-cache-adapt (ré-rankage live de la tier par chaleur vivante), défaut 512 ; ADAPT=0 désactive.
+# Mesure 19/10 : neutre sur trafic apparié au profil (0 swap), +8 % tg et hit 78→93 % hors profil.
+# Spec Qwen (temp 0, trafic bench) : base ~31-32 tg ; draft-mtp ~53-56 rep / 36 prose ;
+# SPEC=draft-mtp,ngram-mod ×3 sur renvoi du même prompt, −7 % sur prose neuf.
 # Multi-tour : la réutilisation du KV du contexte est DÉJÀ active par défaut (fiche idle slot
 # + cache de prompt -cram 8192) ; mesure 19/10 : tours 2+ ≈ 100 tokens pp seulement, branche
 # (édition/reroll) ≈ 55. Inutile de passer --cache-reuse dans nos usages.
@@ -37,6 +41,8 @@ fi
 BANK=${BANK_OVERRIDE:-$BANK}   # BANK_OVERRIDE=5120 tools/serve.sh pour forcer le bank
 [ -n "${BANK_MAX:-}" ] && [ "$BANK" -gt "$BANK_MAX" ] && BANK=$BANK_MAX   # plafond mesuré par calibrate.sh
 PIN=${PIN:-1990}
+ADAPT=${ADAPT-512}   # --moe-cache-adapt N : ré-rankage live de la tier semée par le profil tous les N tokens cachés ; ADAPT=0 désactive
+ADAPTARGS=""; [ "${ADAPT:-0}" -ge 1 ] 2>/dev/null && ADAPTARGS="--moe-cache-adapt $ADAPT"
 
 echo "llama-server MoE cache: CTX=$CTX bank=${BANK} MiB http://$HOST:$PORT (Ctrl-C to stop)"
 
@@ -47,7 +53,7 @@ CORSARGS=""; [ -n "${CORS:-}" ] && CORSARGS="--cors-origins $CORS"   # ex. CORS=
 exec "$BIN" -m "$MODEL" \
     -ngl 99 -cmoe \
     --moe-cache-mib "$BANK" --moe-profile "$PROFILE" --moe-cache-static --moe-cache-pin-mib "$PIN" \
-    $SPECARGS \
+    $ADAPTARGS $SPECARGS \
     --host "$HOST" --port "$PORT" \
     -c "$CTX" -fa on --cache-type-k q4_0 --cache-type-v q4_0 -ub 512 \
     -t 8 --threads-batch 8 --parallel 1 --metrics --slots --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command
