@@ -15,7 +15,7 @@
 set -u
 
 HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
-LLAMA=${LLAMA:-$HERE/llama.cpp}
+LLAMA=$(realpath -m "${LLAMA:-$HERE/llama.cpp}")   # absolu : bench.sh cd dans $LLAMA
 BIN=$LLAMA/build/bin/llama-server
 
 fail() { echo "ERREUR : $*" >&2; exit 1; }
@@ -32,7 +32,7 @@ CTX=${CTX:-8192}
 PP_N=${PP_N:-2048}; TG_N=${TG_N:-256}
 PPNP=${PP_N_PROBE:-1024}; TGNP=${TG_N_PROBE:-128}
 THREADS=${THREADS:-$(nproc)}
-PROFILE=${PROFILE_ABS:-$HERE/tools/prof-$TAG.csv}
+PROFILE=$(realpath -m "${PROFILE_ABS:-$HERE/tools/prof-$TAG.csv}")
 OUT_ENV=$HERE/tools/machine-$TAG.env
 OUT=/tmp/bench
 

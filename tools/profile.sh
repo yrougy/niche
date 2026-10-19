@@ -9,9 +9,9 @@
 set -u
 
 HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
-LLAMA=${LLAMA:-$HERE/llama.cpp}
+LLAMA=$(realpath -m "${LLAMA:-$HERE/llama.cpp}")   # absolu : on cd dans $LLAMA
 BIN=$LLAMA/build/bin/llama-server
-MODEL=${MODEL:-$HERE/models/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}
+MODEL=$(realpath -m "${MODEL:-$HERE/models/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}")
 OUT=${1:-$HERE/tools/prof3.csv}
 case "$OUT" in /*) ;; *) OUT=$PWD/$OUT ;; esac
 LOG=/tmp/profile/server.log

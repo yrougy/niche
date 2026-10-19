@@ -20,10 +20,10 @@
 set -u
 
 HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
-LLAMA=${LLAMA:-$HERE/llama.cpp}
+LLAMA=$(realpath -m "${LLAMA:-$HERE/llama.cpp}")   # absolu : on cd dans $LLAMA avant de lancer $BIN
 BIN=$LLAMA/build/bin/llama-server
-MODEL=${MODEL:-$HERE/models/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}
-PROFILE=${PROFILE:-$HERE/tools/prof3.csv}
+MODEL=$(realpath -m "${MODEL:-$HERE/models/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}")
+PROFILE=$(realpath -m "${PROFILE:-$HERE/tools/prof3.csv}")
 OUT=/tmp/bench
 MODE=${1:-fb}
 CACHE_MIB=${CACHE_MIB:-4096}

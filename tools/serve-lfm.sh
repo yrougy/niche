@@ -20,10 +20,10 @@ HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
 ENVFILE=${ENVFILE:-$HERE/tools/machine-lfm.env}   # tools/calibrate.sh lfm … écrit ce fichier
 [ -f "$ENVFILE" ] && source "$ENVFILE"
 
-LLAMA=${LLAMA:-$HERE/llama.cpp}
+LLAMA=$(realpath -m "${LLAMA:-$HERE/llama.cpp}")   # absolus : le serveur ne résout pas le relatif
 BIN=$LLAMA/build/bin/llama-server
-MODEL=${MODEL:-$HERE/models/LFM2.5-24B-A2B-UD-IQ3_XXS.gguf}
-PROFILE=${PROFILE:-$HERE/tools/prof-lfm.csv}   # toujours absolu : le serveur ne résout pas le relatif
+MODEL=$(realpath -m "${MODEL:-$HERE/models/LFM2.5-24B-A2B-UD-IQ3_XXS.gguf}")
+PROFILE=$(realpath -m "${PROFILE:-$HERE/tools/prof-lfm.csv}")   # toujours absolu
 CTX=${CTX:-65536}
 HOST=${HOST:-0.0.0.0}
 PORT=${PORT:-8002}

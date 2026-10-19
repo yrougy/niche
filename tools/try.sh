@@ -5,9 +5,9 @@
 set -u
 
 HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
-LLAMA=${LLAMA:-$HERE/llama.cpp}
+LLAMA=$(realpath -m "${LLAMA:-$HERE/llama.cpp}")   # absolu : on cd dans $LLAMA
 BIN=$LLAMA/build/bin/llama-cli
-MODEL=${MODEL:-$HERE/models/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}
+MODEL=$(realpath -m "${MODEL:-$HERE/models/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}")
 PROFILE=$HERE/tools/prof2.csv
 MASTER=$HERE/masters
 PROMPT="Q: What is the capital of France? A:"
