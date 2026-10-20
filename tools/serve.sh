@@ -6,6 +6,7 @@
 # défaut : draft-mtp si MODEL_HAS_NEXTN, sinon rien. SPEC=none désactive toute spec.
 # Adapt : --moe-cache-adapt (ré-rankage live de la tier par chaleur vivante), défaut 512 ; ADAPT=0 désactive.
 # KV : KVQ= q8_0 (demi f16, aucune perte mesurable) | q4_0 (défaut, référence mesurée ici) | f16 (aucune).
+# EXTRA= options llama-server personnelles, ajoutées en dernier (donc prioritaires) : ex. EXTRA=--cors-origins http://127.0.0.1:3000 pour un client MCP.
 # Choix du menu niche.sh : tools/settings-qwen.env (SETFILE=) — env exporté > settings > calibrage.
 # Mesure 19/10 : neutre sur trafic apparié au profil (0 swap), +8 % tg et hit 78→93 % hors profil.
 # Spec Qwen (temp 0, trafic bench) : base ~31-32 tg ; draft-mtp ~53-56 rep / 36 prose ;
@@ -49,6 +50,7 @@ ADAPT=${ADAPT-512}   # --moe-cache-adapt N : ré-rankage live de la tier semée 
 ADAPTARGS=""; [ "${ADAPT:-0}" -ge 1 ] 2>/dev/null && ADAPTARGS="--moe-cache-adapt $ADAPT"
 KVQ=${KVQ:-q4_0}   # quant du KV : q8_0 = moitié de f16 sans perte mesurable ; q4_0 = référence mesurée ; f16 = pas de quant
 KVARGS="--cache-type-k $KVQ --cache-type-v $KVQ"
+EXTRA=${EXTRA:-}   # options personnelles en texte libre (menu niche.sh, clé EXTRA) : ajoutées en dernier, découpage sur les espaces, pas de guillemets
 
 echo "llama-server MoE cache: CTX=$CTX bank=${BANK} MiB http://$HOST:$PORT (Ctrl-C to stop)"
 
@@ -62,4 +64,5 @@ exec "$BIN" -m "$MODEL" \
     $ADAPTARGS $SPECARGS \
     --host "$HOST" --port "$PORT" \
     -c "$CTX" -fa on $KVARGS -ub 512 \
-    -t 8 --threads-batch 8 --parallel 1 --metrics --slots --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command
+    -t 8 --threads-batch 8 --parallel 1 --metrics --slots --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command \
+    $EXTRA

@@ -84,9 +84,25 @@ class Bridge:
         self._note("ask_done")
         return reponse
 
+    def ask_text(self, question, default=""):
+        """Question en texte libre (boîte de texte, pré-remplie de default) : bloque comme ask()."""
+        ev = threading.Event()
+        self._ask = [question, None, default, ev, None]
+        self._note("ask_text", (question, default))
+        ev.wait()
+        reponse = self._ask[4]
+        self._ask = None
+        self._note("ask_done")
+        return reponse
+
     def answer(self, label):
         if self._ask:
             self._ask[4] = label
+            self._ask[3].set()
+
+    def answer_text(self, value):
+        if self._ask:
+            self._ask[4] = value
             self._ask[3].set()
 
     def run(self, cmd, cwd=None, env=None) -> int:
@@ -163,6 +179,18 @@ class PlainUI(Bridge):
             if c.lower().startswith(r.lower()):
                 return c
         return default
+
+    def ask_text(self, question, default=""):
+        print(f"\n{question}", flush=True)
+        print(f"  current: {default if default else '(none)'} — Enter keeps, type - to remove",
+              flush=True)
+        try:
+            r = input("> ").strip()
+        except EOFError:
+            r = ""
+        if r == "-":
+            return ""
+        return r or default
 
     def run(self, cmd, cwd=None, env=None) -> int:
         print(f"$ {' '.join(cmd)}", flush=True)

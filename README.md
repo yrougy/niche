@@ -66,7 +66,7 @@ tools/niche_setup.py    installer engine (checks, models, quant choice, calibrat
 tools/niche_tui.py      Textual UI   ·   tools/niche_bridge.py  UI bridge (+ --plain)
 tools/setup.sh          headless variant of the same install (no TUI)
 tools/calibrate.sh      pin/bank measurement → machine-<model>.env
-tools/serve.sh          Qwen server (env overrides: MODEL CTX BANK_OVERRIDE PIN CORS…)
+tools/serve.sh          Qwen server (env overrides: MODEL CTX BANK_OVERRIDE PIN CORS EXTRA…)
 tools/serve-lfm.sh      LFM2.5 server
 tools/try.sh bench.sh   one-shot latency / benchmark harness
 tools/machine-lfm.env   measured parameters of the dev machine

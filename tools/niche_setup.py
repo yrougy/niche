@@ -460,7 +460,11 @@ def settings_get(tag) -> dict:
 
 def settings_save(tag, updates: dict):
     cur = settings_get(tag)
-    cur.update({k: str(v) for k, v in updates.items() if v is not None})
+    for k, v in updates.items():
+        if v is None:
+            cur.pop(k, None)      # retrait explicite : la clé disparaît du fichier
+        else:
+            cur[k] = str(v)
     head = (f"# choices saved by the niche.sh menu for {tag} — exported env wins over these,\n"
             f"# and these win over machine-{tag}.env from calibration. Edit or delete to reset.\n")
     lines = "".join(f"{k}=${{{k}:-{v}}}\n" for k, v in sorted(cur.items()))
@@ -560,6 +564,21 @@ def port_choix(ui, m, saved=None):
     return c
 
 
+def extra_choix(ui, m, saved=None):
+    """options llama-server personnelles, en texte libre : boite de texte, persistée (EXTRA=)."""
+    cur = saved or ""
+    q = (f"{m['tag']}: your own extra llama-server options (added last to every serve start, "
+         "so they can override the script's own flags — for example CORS for an MCP client: "
+         "--cors-origins http://127.0.0.1:3000). One space between flags, no quotes, no braces. "
+         "They are kept and applied again at each start until you remove them: "
+         "keep = Enter, remove = empty box (or - in --plain mode)")
+    x = ui.ask_text(q, cur)
+    if "}" in x:
+        ui.warn(f"{m['tag']}: close-brace not allowed in saved settings — keeping {cur or 'none'}")
+        return cur
+    return x
+
+
 def model_choix(ui, m, saved=None):
     """parmi les poids de la famille déjà téléchargés (MODEL_DIR + GGUF_DIRS)."""
     cands, seen = [], set()
@@ -579,16 +598,20 @@ def model_choix(ui, m, saved=None):
 
 
 def serve_trio(ui, m) -> dict:
-    """contexte + KV + spéculation demandés à chaque démarrage, puis enregistrés dans settings-<tag>.env."""
+    """contexte + KV + spéculation + options perso demandés à chaque démarrage, puis enregistrés
+    dans settings-<tag>.env."""
     st = settings_get(m["tag"])
     n = ctx_choix(ui, m, st.get("CTX"))
     k = kvq_choix(ui, m, st.get("KVQ"))
     sp = spec_choix(ui, m, st.get("SPEC"))
-    settings_save(m["tag"], {kk: vv for kk, vv in (("CTX", n), ("KVQ", k), ("SPEC", sp)) if vv is not None})
+    x = extra_choix(ui, m, st.get("EXTRA"))
+    settings_save(m["tag"], {kk: vv for kk, vv in
+                             (("CTX", n), ("KVQ", k), ("SPEC", sp), ("EXTRA", x or None))
+                             if vv is not None or kk == "EXTRA"})
     env = dict(os.environ)
     if n:
         env["CTX"] = str(n)
-    env["KVQ"], env["SPEC"] = k, sp
+    env["KVQ"], env["SPEC"], env["EXTRA"] = k, sp, x
     mm = st.get("MODEL") or (str(deja_present(m)) if deja_present(m) else None)
     if mm:
         env["MODEL"] = mm
@@ -671,8 +694,11 @@ def settings_step(ui, info, m):
                f"KVQ={st.get('KVQ') or 'q4_0 (script default)'}  "
                f"SPEC={st.get('SPEC') or '(script default)'}  ADAPT={st.get('ADAPT') or '512'}  "
                f"PORT={st.get('PORT') or 8002}")
+        if st.get("EXTRA"):
+            ui.say(f"{tag} extra options: {st['EXTRA']}")
         choix = ["context size", "KV cache quantization", "speculation policy",
-                 "live tier adaptation (ADAPT)", "server port", "weight file (already downloaded)",
+                 "live tier adaptation (ADAPT)", "server port",
+                 "your own extra llama-server options (text box)", "weight file (already downloaded)",
                  "download another quant of this family", "back to the menu"]
         c = ui.ask(f"{tag} settings: what to change?", choix, choix[0])
         if c == "back to the menu":
@@ -698,6 +724,11 @@ def settings_step(ui, info, m):
             p = port_choix(ui, m, st.get("PORT"))
             settings_save(tag, {"PORT": p})
             ui.ok(f"{tag}: PORT={p} saved — start the server again for it to take effect")
+        elif c == "your own extra llama-server options (text box)":
+            x = extra_choix(ui, m, st.get("EXTRA"))
+            settings_save(tag, {"EXTRA": x or None})
+            ui.ok(f"{tag}: extra options {'removed' if not x else x} — "
+                  "start the server again for it to take effect")
         elif c == "weight file (already downloaded)":
             mm = model_choix(ui, m, st.get("MODEL"))
             if mm:

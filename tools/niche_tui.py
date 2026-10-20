@@ -20,7 +20,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.timer import Timer
-from textual.widgets import OptionList, RichLog, Static
+from textual.widgets import Input, OptionList, RichLog, Static
 from textual.widgets.option_list import Option
 
 ROOT = Path(__file__).resolve().parent.parent      # le dépôt niche (coin haut droit)
@@ -51,6 +51,9 @@ CSS = """
                                background: #0d1117; }
     #options > .option-list--option-highlighted,
     #options:focus > .option-list--option-highlighted { background: #21415e; color: #d9ecff; text-style: bold; }
+    #answer { display: none; margin-top: 1; }
+    #ask.text #answer { display: block; }
+    #ask.text #options { display: none; }
     #keys { height: 1; color: #7f97a9; }
 """
 BINDINGS = [Binding("ctrl+c", "stop", show=False, priority=True),
@@ -87,7 +90,9 @@ class NicheApp(App):
                     with Vertical(id="ask"):
                         yield Static("", id="intro")
                         yield OptionList(id="options")
+                        yield Input(id="answer", placeholder="type here, Enter to validate")
                 yield Static("↑↓ select · Enter validate · Ctrl+C stop then quit · "
+                             "text box: clear it + Enter removes the saved value · "
                              "full output: tools/niche-setup.log", id="keys")
 
     def on_mount(self) -> None:
@@ -184,10 +189,20 @@ class NicheApp(App):
                             for i, c in enumerate(choices)])
             ol.highlighted = choices.index(default) if default in choices else 0
             self.query_one("#intro", Static).update(q)
+            self.query_one("#ask", Vertical).remove_class("text")
             self.query_one("#ask", Vertical).add_class("on")
             ol.focus()
+        elif kind == "ask_text":
+            q, default = text
+            self.query_one("#intro", Static).update(q)
+            inp = self.query_one("#answer", Input)
+            inp.value = default or ""          # pré-rempli : Entrée sèche = on garde
+            self.query_one("#ask", Vertical).add_class("text")
+            self.query_one("#ask", Vertical).add_class("on")
+            inp.focus()
         elif kind == "ask_done":
             self.query_one("#ask", Vertical).remove_class("on")
+            self.query_one("#ask", Vertical).remove_class("text")
         elif kind == "end":
             self._timer and self._timer.stop()
             self.exit()
@@ -199,6 +214,10 @@ class NicheApp(App):
         label = str(event.option.prompt).split("   [default]")[0]
         self.query_one("#ask", Vertical).remove_class("on")
         self.bridge.answer(label)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.query_one("#ask", Vertical).remove_class("on")
+        self.bridge.answer_text(event.value)
 
     def action_stop(self) -> None:
         self.bridge.stop()

@@ -19,6 +19,7 @@
 # arrive dans reasoning_content du JSON, content peut rester vide (test API 14/10/2026).
 # Env : CTX (65536), BANK_OVERRIDE, MODEL, PROFILE, PIN, PORT, HOST, SPEC (ngram-mod), ADAPT (512),
 #       KVQ (q4_0) — quant du KV : q8_0 = moitié de f16 sans perte mesurable, f16 = aucune,
+#       EXTRA= options llama-server personnelles, ajoutées en dernier (donc prioritaires) : ex. EXTRA=--cors-origins http://127.0.0.1:3000 pour un client MCP,
 #       ENVFILE=tools/machine-lfm.env, SETFILE=tools/settings-lfm.env (choix du menu niche.sh ;
 #       env exporté > SETFILE > ENVFILE),
 #       MOE_STATS=/tmp/moe-stats-lfm.csv (csv hit rate par couche/expert : écrit au chargement,
@@ -48,6 +49,7 @@ TOPK=${TOPK:-50}      # model card LFM2.5
 RPEN=${RPEN:-1.05}   # model card LFM2.5
 KVQ=${KVQ:-q4_0}   # quant du KV : q8_0 = moitié de f16 sans perte mesurable ; q4_0 = référence mesurée ; f16 = pas de quant
 KVARGS="--cache-type-k $KVQ --cache-type-v $KVQ"
+EXTRA=${EXTRA:-}   # options personnelles en texte libre (menu niche.sh, clé EXTRA) : ajoutées en dernier, découpage sur les espaces, pas de guillemets
 
 SPEC=${SPEC:-ngram-mod}
 SPECARGS=""; [ -n "$SPEC" ] && SPECARGS="--spec-type $SPEC"
@@ -82,4 +84,5 @@ exec "$BIN" -m "$MODEL" \
     -c "$CTX" -fa on $KVARGS -ub 512 \
     -t "${THREADS:-8}" --threads-batch "${THREADS:-8}" --parallel 1 \
     --temp "$TEMP" --top-k "$TOPK" --repeat-penalty "$RPEN" --metrics --slots \
-    --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command
+    --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command \
+    $EXTRA

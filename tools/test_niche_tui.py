@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from niche_bridge import Bridge            # noqa: E402
 from niche_tui import NicheApp            # noqa: E402
 from textual.containers import Vertical     # noqa: E402
+from textual.widgets import Input           # noqa: E402
 
 
 async def scenario_events(pilot, br, app):
@@ -52,12 +53,50 @@ async def scenario_ask(pilot, br, app):
     print("  ask ok")
 
 
+async def scenario_ask_text(pilot, br, app):
+    """Boîte de texte texte libre : pré-remplie du choix sauvegardé, Entrée sèche = on garde,
+    effacer + Entrée = retrait, puis retour au menu liste normal."""
+    v = {}
+    threading.Thread(target=lambda: v.update(
+        a=br.ask_text("extra options ?", "--jinja")), daemon=True).start()
+    await pilot.pause(0.4)
+    ask = app.query_one("#ask", Vertical)
+    assert ask.has_class("on") and ask.has_class("text")
+    assert app.query_one("#answer", Input).value == "--jinja"    # pré-remplie
+    await pilot.press("enter"); await pilot.pause(0.4)
+    assert v.get("a") == "--jinja", v                            # Entrée sèche = on garde
+    threading.Thread(target=lambda: v.update(
+        b=br.ask_text("encore ?", "")), daemon=True).start()
+    await pilot.pause(0.4)
+    assert app.query_one("#answer", Input).value == ""
+    keys = ["space" if c == " " else c for c in "--cors http://x:1"]   # touches imprimables + espace
+    await pilot.press(*keys)
+    await pilot.pause(0.2)
+    await pilot.press("enter"); await pilot.pause(0.4)
+    assert v.get("b") == "--cors http://x:1", v
+    threading.Thread(target=lambda: v.update(
+        c=br.ask_text("vider ?", "a b")), daemon=True).start()
+    await pilot.pause(0.4)
+    await pilot.press("ctrl+g", "delete", "enter")               # ctrl+g = tout sélectionner, effacé = retrait
+    await pilot.pause(0.4)
+    assert v.get("c") == "", v
+    assert not ask.has_class("on") and not ask.has_class("text")
+    threading.Thread(target=lambda: v.update(
+        d=br.ask("menu liste encore ?", ["x", "y"], "y")), daemon=True).start()
+    await pilot.pause(0.4)
+    assert app.query_one("#options").highlighted == 1            # le menu liste a repris la main
+    await pilot.press("enter"); await pilot.pause(0.4)
+    assert v.get("d") == "y", v
+    print("  ask_text ok")
+
+
 async def main():
     br = Bridge()
     app = NicheApp(br)
     async with app.run_test(size=(120, 40)) as pilot:
         await scenario_events(pilot, br, app)
         await scenario_ask(pilot, br, app)
+        await scenario_ask_text(pilot, br, app)
         br._note("end")
         await pilot.pause(0.5)
     print("test_niche_tui : OK")
