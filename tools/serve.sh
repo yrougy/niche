@@ -5,6 +5,8 @@
 # Spec : SPEC= vaut pour --spec-type (liste virgules autorisée, ex. SPEC=draft-mtp,ngram-mod) ;
 # défaut : draft-mtp si MODEL_HAS_NEXTN, sinon rien. SPEC=none désactive toute spec.
 # Adapt : --moe-cache-adapt (ré-rankage live de la tier par chaleur vivante), défaut 512 ; ADAPT=0 désactive.
+# KV : KVQ= q8_0 (demi f16, aucune perte mesurable) | q4_0 (défaut, référence mesurée ici) | f16 (aucune).
+# Choix du menu niche.sh : tools/settings-qwen.env (SETFILE=) — env exporté > settings > calibrage.
 # Mesure 19/10 : neutre sur trafic apparié au profil (0 swap), +8 % tg et hit 78→93 % hors profil.
 # Spec Qwen (temp 0, trafic bench) : base ~31-32 tg ; draft-mtp ~53-56 rep / 36 prose ;
 # SPEC=draft-mtp,ngram-mod ×3 sur renvoi du même prompt, −7 % sur prose neuf.
@@ -13,11 +15,12 @@
 # (édition/reroll) ≈ 55. Inutile de passer --cache-reuse dans nos usages.
 set -u
 
-CTX=${CTX:-4096}   # ← taille du contexte : à éditer ici, ou CTX=8192 tools/serve.sh
-
 HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
 LLAMA=$(realpath -m "${LLAMA:-$HERE/llama.cpp}")   # absolus : le serveur ne résout pas le relatif
 BIN=$LLAMA/build/bin/llama-server
+# choix enregistrés par le menu niche.sh (env exporté gagne, puis settings, puis calibrage machine-qwen.env) :
+SETFILE=${SETFILE:-$HERE/tools/settings-qwen.env}
+[ -f "$SETFILE" ] && source "$SETFILE"
 ENVFILE=${ENVFILE:-$HERE/tools/machine-qwen.env}   # tools/calibrate.sh qwen … écrit ce fichier
 [ -f "$ENVFILE" ] && source "$ENVFILE"
 MODEL=$(realpath -m "${MODEL:-$HERE/models/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}")
@@ -25,8 +28,9 @@ PROFILE=$(realpath -m "${PROFILE:-$HERE/tools/prof3.csv}")
 # tête MTP : honorée seulement si le GGUF a des couches nextn (calibrate.sh sonde le
 # header et écrit MODEL_HAS_NEXTN). MTP=0/1 à l'export force malgré tout.
 MTP=${MTP:-${MODEL_HAS_NEXTN:-1}}
-HOST=0.0.0.0
-PORT=8002
+HOST=${HOST:-0.0.0.0}
+PORT=${PORT:-8002}
+CTX=${CTX:-4096}   # ← taille du contexte : à éditer ici, ou CTX=8192 tools/serve.sh, ou via le menu niche.sh
 
 # bank GPU max avec MTP (mesuré sur cette machine, VRAM 8 GiB) :
 # 5632 tient à CTX 4096, 5120 à CTX 8192 ; au-delà on réduit d'environ 512 MiB par 8k tokens.
@@ -43,6 +47,8 @@ BANK=${BANK_OVERRIDE:-$BANK}   # BANK_OVERRIDE=5120 tools/serve.sh pour forcer l
 PIN=${PIN:-1990}
 ADAPT=${ADAPT-512}   # --moe-cache-adapt N : ré-rankage live de la tier semée par le profil tous les N tokens cachés ; ADAPT=0 désactive
 ADAPTARGS=""; [ "${ADAPT:-0}" -ge 1 ] 2>/dev/null && ADAPTARGS="--moe-cache-adapt $ADAPT"
+KVQ=${KVQ:-q4_0}   # quant du KV : q8_0 = moitié de f16 sans perte mesurable ; q4_0 = référence mesurée ; f16 = pas de quant
+KVARGS="--cache-type-k $KVQ --cache-type-v $KVQ"
 
 echo "llama-server MoE cache: CTX=$CTX bank=${BANK} MiB http://$HOST:$PORT (Ctrl-C to stop)"
 
@@ -55,5 +61,5 @@ exec "$BIN" -m "$MODEL" \
     --moe-cache-mib "$BANK" --moe-profile "$PROFILE" --moe-cache-static --moe-cache-pin-mib "$PIN" \
     $ADAPTARGS $SPECARGS \
     --host "$HOST" --port "$PORT" \
-    -c "$CTX" -fa on --cache-type-k q4_0 --cache-type-v q4_0 -ub 512 \
+    -c "$CTX" -fa on $KVARGS -ub 512 \
     -t 8 --threads-batch 8 --parallel 1 --metrics --slots --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command

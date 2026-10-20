@@ -18,7 +18,9 @@
 # Note : le template chat LFM2.5 active le mode raisonnement par défaut → la sortie textuelle
 # arrive dans reasoning_content du JSON, content peut rester vide (test API 14/10/2026).
 # Env : CTX (65536), BANK_OVERRIDE, MODEL, PROFILE, PIN, PORT, HOST, SPEC (ngram-mod), ADAPT (512),
-#       ENVFILE=tools/machine-lfm.env,
+#       KVQ (q4_0) — quant du KV : q8_0 = moitié de f16 sans perte mesurable, f16 = aucune,
+#       ENVFILE=tools/machine-lfm.env, SETFILE=tools/settings-lfm.env (choix du menu niche.sh ;
+#       env exporté > SETFILE > ENVFILE),
 #       MOE_STATS=/tmp/moe-stats-lfm.csv (csv hit rate par couche/expert : écrit au chargement,
 #       compteurs finaux flushés à l'arrêt propre SIGINT/Ctrl-C)
 # Échantillonnage conforme à la model card LFM2.5 (relevé 16/10) : TEMP=0.1 TOPK=50 RPEN=1.05.
@@ -26,6 +28,9 @@
 set -u
 
 HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
+# choix enregistrés par le menu niche.sh (env exporté gagne, puis settings, puis calibrage machine-lfm.env) :
+SETFILE=${SETFILE:-$HERE/tools/settings-lfm.env}
+[ -f "$SETFILE" ] && source "$SETFILE"
 ENVFILE=${ENVFILE:-$HERE/tools/machine-lfm.env}   # tools/calibrate.sh lfm … écrit ce fichier
 [ -f "$ENVFILE" ] && source "$ENVFILE"
 
@@ -40,7 +45,9 @@ PIN=${PIN:-1990}
 MOE_STATS=${MOE_STATS:-/tmp/moe-stats-lfm.csv}
 TEMP=${TEMP:-0.1}     # model card LFM2.5
 TOPK=${TOPK:-50}      # model card LFM2.5
-RPEN=${RPEN:-1.05}    # model card LFM2.5
+RPEN=${RPEN:-1.05}   # model card LFM2.5
+KVQ=${KVQ:-q4_0}   # quant du KV : q8_0 = moitié de f16 sans perte mesurable ; q4_0 = référence mesurée ; f16 = pas de quant
+KVARGS="--cache-type-k $KVQ --cache-type-v $KVQ"
 
 SPEC=${SPEC:-ngram-mod}
 SPECARGS=""; [ -n "$SPEC" ] && SPECARGS="--spec-type $SPEC"
@@ -72,7 +79,7 @@ exec "$BIN" -m "$MODEL" \
     $ADAPTARGS $SPECARGS \
     --moe-stats "$MOE_STATS" \
     --host "$HOST" --port "$PORT" \
-    -c "$CTX" -fa on --cache-type-k q4_0 --cache-type-v q4_0 -ub 512 \
+    -c "$CTX" -fa on $KVARGS -ub 512 \
     -t "${THREADS:-8}" --threads-batch "${THREADS:-8}" --parallel 1 \
     --temp "$TEMP" --top-k "$TOPK" --repeat-penalty "$RPEN" --metrics --slots \
     --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command

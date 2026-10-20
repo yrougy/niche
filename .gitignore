@@ -2,6 +2,9 @@ __pycache__/
 *.pyc
 tools/.venv/
 tools/niche-setup.log
+tools/settings-*.env
+tools/niche-server-*.log
+tools/.niche-server-*.pid
 Strata
 llama.cpp
 /models

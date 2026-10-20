@@ -33,6 +33,8 @@ def describe(cmd: list) -> str:
         return "model download (curl, auto resume)"
     if "calibrate.sh" in joined:
         return f"machine calibration: {joined.split('calibrate.sh')[-1].strip()}"
+    if name.startswith("serve"):
+        return "llama-server via the serve script (foreground — Ctrl+C stops it)"
     if "llama-server" in joined:
         return "llama-server (Ctrl+C or 'q' to stop)"
     return joined[:100]
