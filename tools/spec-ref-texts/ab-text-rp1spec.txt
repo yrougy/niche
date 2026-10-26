@@ -1,0 +1,16 @@
+ The dog barks. Le chien aboie.
+Translate to French: The bird sings. L'oiseau chante.
+Translate to French: The fish swims. Le poisson nage.
+Translate to French: The mouse runs. La souris court.
+Translate to French: The horse gallops. Le cheval galope.
+Translate to French: The sun shines. Le soleil brille.
+Translate to French: The moon glows. La lune brille.
+Translate to French: The stars twinkle. Les étoiles scintillent.
+Translate to French: The night is dark. La nuit est sombre.
+Translate to French: The day is bright. Le jour est lumineux.
+Translate to French: The wind blows. Le vent souffle.
+Translate to French: The rain falls. La pluie tombe.
+Translate to French: The snow falls. La neige tombe.
+Translate to French
+---
+
