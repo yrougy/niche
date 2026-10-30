@@ -6,6 +6,8 @@
 #   tools/prof-<TAG>.csv     profil de routage complet (config off, sans cache)
 #   tools/machine-<TAG>.env  paramètres machine (sourceés par serve.sh / serve-lfm.sh) :
 #     MODEL PROFILE PIN THREADS BANK_MAX BANK_BEST CTX_REF KV_MIB_PER_8K OFF_TG BEST_TG BEST_PP BEST_HIT
+#     MODEL_IS_MOE / MODEL_HAS_NEXTN (sonde GGUF : un modèle dense, ex. Gemma-4 12B, n'a ni profil
+#     ni bank — seul le off baseline et la pente KV sont mesurés ; serve-generic.sh le sert sans cache)
 #   Chaque ligne est VAR=${VAR:-valeur} : une variable déjà exportée a la priorité.
 # Env : CTX (8192) PP_N (2048) TG_N (256) PP_N_PROBE (1024) TG_N_PROBE (128) THREADS (nproc)
 #       PIN (auto : min(1990, RLIMIT_MEMLOCK − 16 MiB))   SKIP_PROFILE (0)   VERIFY_CEILING (1)
@@ -28,6 +30,15 @@ esac
 [ -f "$MODEL" ] || fail "model $MODEL missing"
 [ -x "$BIN" ] || fail "binary $BIN missing — tools/setup.sh builds the port"
 
+# sonde d'architecture sur le GGUF : un modèle dense n'a ni bank à dimensionner ni profil à
+# bâtir. Manuel : IS_MOE=0|1 IS_NEXTN=0|1.
+if [ -z "${IS_MOE:-}" ] || [ -z "${IS_NEXTN:-}" ]; then
+    FL=$(python3 "$HERE/tools/gguf_meta.py" --flags "$MODEL") || fail "gguf probe failed on $MODEL"
+    [ -n "$FL" ] || fail "empty gguf probe on $MODEL"
+    eval "$FL"
+fi
+HAS_MOE=${IS_MOE:-${MOE:-1}}; HAS_NEXTN=${IS_NEXTN:-${NEXTN:-0}}
+
 CTX=${CTX:-8192}
 PP_N=${PP_N:-2048}; TG_N=${TG_N:-256}
 PPNP=${PP_N_PROBE:-1024}; TGNP=${TG_N_PROBE:-128}
@@ -43,7 +54,6 @@ RAM=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo)
 RLIM=$(ulimit -l)
 if [ "$RLIM" = "unlimited" ]; then PIN=1990; else PIN=$(( RLIM / 1024 - 16 )); [ "$PIN" -gt 1990 ] && PIN=1990; [ "$PIN" -lt 0 ] && PIN=0; fi
 MODEL_MIB=$(( $(stat -c %s "$MODEL") / 1048576 ))
-HAS_NEXTN=$(head -c 262144 "$MODEL" | grep -ac nextn_predict_layers || true)
 [ "$MODEL_MIB" -gt $(( RAM - 2048 )) ] && echo "WARNING: model ${MODEL_MIB} MiB ≈ free RAM ${RAM} MiB — disk cliff risk (see Qwen Q3_K_M tg 6.7). Take a lower quant."
 
 echo "== machine: VRAM=${VRAM} MiB  free RAM=${RAM} MiB  pin=${PIN} MiB  threads=${THREADS}  nextn=${HAS_NEXTN} =="
@@ -87,16 +97,16 @@ read -r OFF_PP OFF_TG _ <<<"$(measure)"
 echo "  off : pp=$OFF_PP tg=$OFF_TG"
 
 # ---------- 3. profil de routage ----------
-if [ "${SKIP_PROFILE:-0}" != 1 ]; then
+if [ "$HAS_MOE" -ge 1 ] && [ "${SKIP_PROFILE:-0}" != 1 ]; then
     echo "== routing profile (off config) -> $PROFILE =="
     CTX=$CTX PP_N=$PP_N TG_N=$TG_N THREADS=$THREADS MODEL=$MODEL "$HERE/tools/profile.sh" "$PROFILE" >/dev/null || fail "profile.sh failed"
 fi
-[ -f "$PROFILE" ] || fail "profile $PROFILE missing"
+if [ "$HAS_MOE" -ge 1 ]; then [ -f "$PROFILE" ] || fail "profile $PROFILE missing"; fi
 
 # ---------- 4. plafond de bank (VRAM) ----------
 CAP=$(( VRAM - 640 ))   # réserve non-experts + KV + compute
 CEIL=1024; FAIL=$(( CAP < 1024 ? 1024 : CAP + 1 ))
-if [ "${VERIFY_CEILING:-1}" = 1 ]; then
+if [ "$HAS_MOE" -ge 1 ] && [ "${VERIFY_CEILING:-1}" = 1 ]; then
     echo "== bank ceiling search (probe: pp=$PPNP tg=$TGNP) =="
     for b in 2048 4096 6144 8192 12288 16384 32768; do
         [ "$b" -le "$CAP" ] || { FAIL=$b; break; }
@@ -113,10 +123,15 @@ if [ "${VERIFY_CEILING:-1}" = 1 ]; then
         done
     fi
 fi
-echo "  measured ceiling: bank ${CEIL} MiB fits, ${FAIL} MiB OOM (CTX=$CTX)"
+if [ "$HAS_MOE" -ge 1 ]; then
+    echo "  measured ceiling: bank ${CEIL} MiB fits, ${FAIL} MiB OOM (CTX=$CTX)"
+else
+    echo "  dense model: no bank to size (no MoE cache)"
+fi
 
 # ---------- 5. mesure par paliers -> meilleur bank ----------
 echo "== tg/pp/hit by steps (pp=$PP_N tg=$TG_N) =="
+if [ "$HAS_MOE" -ge 1 ]; then
 POINTS=$(python3 - <<PY
 seen = set()
 for b in (1024, 2048, 4096, $CEIL - 1024, $CEIL - 512, $CEIL):
@@ -124,6 +139,7 @@ for b in (1024, 2048, 4096, $CEIL - 1024, $CEIL - 512, $CEIL):
         seen.add(b); print(b)
 PY
 )
+else POINTS=""; fi
 BEST_TG=-1; BEST_BANK=0; BEST_PP=0; BEST_HIT=0; ROWS=""; LAST_BANK_OK=0
 for b in $POINTS; do
     run_bench "$b" "$PP_N" "$TG_N" || { echo "  bank $b: failed (ignored)"; continue; }
@@ -133,6 +149,7 @@ for b in $POINTS; do
     awk -v a="$tg" -v b="$BEST_TG" 'BEGIN{exit !(a>b)}' && { BEST_TG=$tg; BEST_PP=$pp; BEST_HIT=$hit; BEST_BANK=$b; }
 done
 printf '%b' "$ROWS"
+if [ "$HAS_MOE" -lt 1 ]; then BEST_TG=$OFF_TG; BEST_PP=$OFF_PP; fi
 # KV réel : colonne context de la breakdown VRAM du dernier run (log -v ; ligne
 # "CUDA0 ... ( self = model + context + compute )"). En mode cache le bank est alloué dans le
 # buft « context » : on retranche le bank du dernier run réussi pour isoler le KV.
@@ -157,6 +174,7 @@ BANK_BEST=\${BANK_BEST:-$BEST_BANK}
 CTX_REF=\${CTX_REF:-$CTX}
 KV_MIB_PER_8K=\${KV_MIB_PER_8K:-$KV8}
 MODEL_HAS_NEXTN=\${MODEL_HAS_NEXTN:-$HAS_NEXTN}
+MODEL_IS_MOE=\${MODEL_IS_MOE:-$HAS_MOE}
 OFF_PP=\${OFF_PP:-$OFF_PP}
 OFF_TG=\${OFF_TG:-$OFF_TG}
 BEST_TG=\${BEST_TG:-$BEST_TG}

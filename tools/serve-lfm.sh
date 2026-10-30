@@ -75,14 +75,34 @@ BANK=${BANK_OVERRIDE:-$BANK}
 echo "llama-server LFM2.5-24B-A2B MoE cache: CTX=$CTX bank=${BANK} MiB pin=${PIN} MiB http://$HOST:$PORT (Ctrl-C to stop)"
 
 CORSARGS=""; [ -n "${CORS:-}" ] && CORSARGS="--cors-origins $CORS"   # ex. CORS=http://hote:8002 pour autoriser une UI web distante
-exec "$BIN" -m "$MODEL" \
-    -ngl 99 -cmoe \
-    --moe-cache-mib "$BANK" --moe-profile "$PROFILE" --moe-cache-static --moe-cache-pin-mib "$PIN" \
-    $ADAPTARGS $SPECARGS \
-    --moe-stats "$MOE_STATS" \
-    --host "$HOST" --port "$PORT" \
-    -c "$CTX" -fa on $KVARGS -ub 512 \
-    -t "${THREADS:-8}" --threads-batch "${THREADS:-8}" --parallel 1 \
-    --temp "$TEMP" --top-k "$TOPK" --repeat-penalty "$RPEN" --metrics --slots \
-    --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command \
-    $EXTRA
+
+# OOM VRAM à l'init (compute buffers) : le plafond de bank mesuré au calibrage (CTX_REF 8192)
+# ne tient pas toujours au CTX de service — KV et buffers croissent, et un changement de quant
+# change aussi les non-experts. Le bank est le levier automatique : retry −512 MiB jusqu'à 2048
+# (tg baisse un peu, le serveur démarre), refaire tools/calibrate.sh pour le plafond réel.
+# Le menu niche.sh nous stoppe par SIGINT sur le pid du script : on le relaie au serveur pour
+# que les compteurs moe-stats se flushent (l'exec() direct faisait ça gratuitement).
+OOMLOG=/tmp/.serve-lfm-oom-probe.log
+SRV=""
+trap '[ -n "$SRV" ] && kill -INT "$SRV" 2>/dev/null' INT TERM
+while :; do
+    "$BIN" -m "$MODEL" \
+        -ngl 99 -cmoe \
+        --moe-cache-mib "$BANK" --moe-profile "$PROFILE" --moe-cache-static --moe-cache-pin-mib "$PIN" \
+        $ADAPTARGS $SPECARGS \
+        --moe-stats "$MOE_STATS" \
+        --host "$HOST" --port "$PORT" \
+        -c "$CTX" -fa on $KVARGS -ub 512 \
+        -t "${THREADS:-8}" --threads-batch "${THREADS:-8}" --parallel 1 \
+        --temp "$TEMP" --top-k "$TOPK" --repeat-penalty "$RPEN" --metrics --slots \
+        --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command \
+        $EXTRA 2> >(tee "$OOMLOG" >&2) &
+    SRV=$!
+    wait "$SRV"; rc=$?
+    if [ "$rc" -ne 0 ] && grep -qiE 'cudaMalloc failed|out of memory|failed to allocate' "$OOMLOG" && [ "$BANK" -gt 2048 ]; then
+        OLD=$BANK; BANK=$(( BANK - 512 )); [ "$BANK" -lt 2048 ] && BANK=2048
+        echo "WARNING: VRAM OOM au bank ${OLD} (CTX=$CTX) — nouvelle tentative au bank $BANK. tools/calibrate.sh lfm <GGUF> mesure le plafond réel." >&2
+        continue
+    fi
+    exit "$rc"
+done

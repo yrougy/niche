@@ -99,7 +99,44 @@ def main(path, tensor_filter):
             per_expert = b // dims[2] if len(dims) == 3 else 0
             print(f"{name} {dt} dims={dims} bytes={b} per_expert={per_expert}")
 
+def flags(path):
+    # sonde rapide d'architecture (metadonnees + noms de tenseurs seulement) :
+    # MOE=1 si cle metadonnee *.expert_count / *.expert_used_count ou tenseurs
+    # d'experts (ffn_gate_inp, *_exps.*, *.experts.*) ; NEXTN=1 si nextn_predict_layers > 0.
+    moe = 0; nextn = 0
+    f = open(path, "rb")
+    assert f.read(4) == b"GGUF", "not GGUF"
+    ver = struct.unpack("<I", f.read(4))[0]
+    if ver >= 3:
+        n_tensors = struct.unpack("<Q", f.read(8))[0]
+        n_kv = struct.unpack("<Q", f.read(8))[0]
+    else:
+        n_kv = struct.unpack("<Q", f.read(8))[0]
+        n_tensors = None
+    for _ in range(n_kv):
+        k = read_string(f)
+        t = struct.unpack("<I", f.read(4))[0]
+        v = read_value(f, t)
+        if k.endswith(".expert_count") or k.endswith(".expert_used_count"):
+            moe = 1
+        if k.endswith(".nextn_predict_layers") and isinstance(v, int) and v > 0:
+            nextn = 1
+    if n_tensors is None:
+        n_tensors = struct.unpack("<Q", f.read(8))[0]
+    for _ in range(n_tensors):
+        name = read_string(f)
+        n_d = struct.unpack("<I", f.read(4))[0]
+        f.read(8 * n_d)
+        f.read(12)
+        if "ffn_gate_inp" in name or "_exps." in name or ".experts." in name:
+            moe = 1
+    f.close()
+    print(f"MOE={moe} NEXTN={nextn}")
+
 if __name__ == "__main__":
+    if len(sys.argv) > 2 and sys.argv[1] == "--flags":
+        flags(sys.argv[2])
+        sys.exit(0)
     filt = lambda s: True
     if len(sys.argv) > 2:
         pat = sys.argv[2]
