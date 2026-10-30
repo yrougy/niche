@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """niche_setup — le moteur sans écran du port cache-MoE niche : état de la machine,
-choix du MODÈLE (un seul à la fois : Qwen3.6-35B-A3B ou LFM2.5-24B-A2B) puis d'une
+choix du MODÈLE (un seul à la fois : LFM2.5-24B-A2B, Qwen3.6-35B-A3B, Gemma-4-26B-A4B,
+GLM-4.7-Flash, ou n'importe quel autre GGUF d'unsloth dénichable sur HF — le menu
+les liste avec leur taille et un avertissement quand même le plus petit quant ne tient
+pas dans le budget RAM) puis d'une
 QUANTIZATION ADAPTÉE À LA MACHINE (l'API HF
 donne la liste et les tailles exactes ; le budget est le hot set RAM, pas la VRAM —
 cliff mesuré 12/10 : au-delà, le tail chaud faulte sur disque, tg ~7), réutilisation
@@ -19,6 +22,7 @@ import signal
 import subprocess
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent          # tools/
@@ -71,9 +75,64 @@ MODELS = [
                 "UD-Q3_K_XL": "> 15 GiB: same wall as Q3_K_M",
                 "UD-IQ3_S": "> 12.7 GiB: near the measured wall",
                 "UD-IQ3_XXS": "> 12.3 GiB: near the measured wall"}),
+    dict(tag="gemma4", nom="Gemma-4-26B-A4B", prefix="gemma-4-26B-A4B-it",
+         repo="unsloth/gemma-4-26B-A4B-it-GGUF",
+         note="26B MoE (4B active, 128 experts top-8), 30 layers, ctx max 262k; vision model "
+             "(text-only is fine, skip mmproj); MTP is a SEPARATE draft GGUF (mtp-*.gguf in "
+             "the repo) — enable with EXTRA=--model-draft …; nothing measured yet on this port",
+         fallback=("gemma-4-26B-A4B-it-UD-IQ2_XXS.gguf", 9 * 2**30),
+         serve="serve-generic.sh", envfile="machine-gemma4.env", mtp=False, ctx_defaut=8192,
+         ctxs=[(8192, "generic default — run calibration to size the bank"),
+              (16384, "unmeasured on this machine"),
+              (32768, "unmeasured"),
+              (65536, "unmeasured; sliding window 1024 + full layers")]),
+    dict(tag="glm", nom="GLM-4.7-Flash", prefix="GLM-4.7-Flash",
+         repo="unsloth/GLM-4.7-Flash-GGUF",
+         note="~30B MoE (3B active, 64 experts +1 shared top-4), 47 layers, embedded MTP head, "
+             "ctx max 198k; KV is heavy (20 KV heads, MHA) — keep KVQ low; nothing measured yet",
+         fallback=("GLM-4.7-Flash-UD-IQ2_M.gguf", 10 * 2**30),
+         serve="serve-generic.sh", envfile="machine-glm.env", mtp=True, ctx_defaut=8192,
+         ctxs=[(8192, "generic default — run calibration to size the bank"),
+              (16384, "unmeasured on this machine"),
+              (32768, "unmeasured; KV heavy (MHA): watch RAM"),
+              (65536, "unmeasured; KV heavy (MHA): watch RAM")]),
 ]
 BRANCHE = "moe-expert-cache"
 FORK = "https://github.com/yrougy/llama-moe-cache.git"
+
+# modèles choisis dynamiquement dans la liste unsloth (hors catalogue) : leur entrée est
+# gardée ici pour être re-proposée au prochain démarrage (poids, settings et profil sont
+# tous keyés par tag).
+EXTRA_FILE = HERE / "models-extra.json"
+
+
+def load_extra_models():
+    try:
+        data = json.loads(EXTRA_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    for m in data:
+        if (isinstance(m, dict) and m.get("tag") and m.get("prefix") and m.get("repo")
+                and not any(x["tag"] == m["tag"] for x in MODELS)):
+            m.setdefault("serve", "serve-generic.sh")
+            m.setdefault("envfile", f"machine-{m['tag']}.env")
+            m.setdefault("ctx_defaut", 8192)
+            MODELS.append(m)
+
+
+def save_extra_model(m):
+    try:
+        data = json.loads(EXTRA_FILE.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            data = []
+    except (OSError, ValueError):
+        data = []
+    if not any(isinstance(x, dict) and x.get("tag") == m["tag"] for x in data):
+        data.append(dict(m))
+        EXTRA_FILE.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
+
+
+load_extra_models()
 
 
 def model_dir() -> Path:
@@ -112,18 +171,32 @@ def deja_present(m) -> Path | None:
                                        c.stat().st_size))
 
 
+def _hf_tree(repo: str):
+    with urllib.request.urlopen(f"https://huggingface.co/api/models/{repo}/tree/main", timeout=15) as r:
+        return json.load(r)
+
+
+def _gguf_sizes(tree) -> list:
+    """[(fichier, octets)] des .gguf d'un arbre HF, hors mmproj, brouillon MTP séparé
+    (mtp-*.gguf) et fichiers annexes (imatrix…, sans segment de quant en majuscules), du plus
+    gros au plus petit."""
+    out = [(e["path"], int(e.get("size", 0))) for e in tree
+           if e.get("path", "").endswith(".gguf") and "/" not in e["path"]
+           and "mmproj" not in e["path"] and not Path(e["path"]).name.startswith("mtp-")
+           and int(e.get("size", 0)) > 0
+           and re.search(r"-[A-Z0-9_]*[A-Z][A-Z0-9_]*\.gguf$", e["path"])]
+    return sorted(out, key=lambda x: -x[1])
+
+
 def hf_listing(ui, m) -> list | None:
-    """[(fichier, octets)] des .gguf du dépôt (hors mmproj), du plus gros au plus petit ; None si l'API est injoignable."""
-    url = f"https://huggingface.co/api/models/{m['repo']}/tree/main"
+    """[(fichier, octets)] des .gguf de la famille (ceux du prefix seulement), du plus gros au
+    plus petit ; None si l'API est injoignable."""
     try:
-        with urllib.request.urlopen(url, timeout=15) as r:
-            ents = json.load(r)
+        out = [x for x in _gguf_sizes(_hf_tree(m["repo"])) if x[0].startswith(m["prefix"] + "-")]
     except Exception as e:
         ui.warn(f"{m['tag']}: HF API unreachable ({e.__class__.__name__}) — falling back to the default quant.")
         return None
-    out = [(e["path"], int(e.get("size", 0))) for e in ents
-           if e.get("path", "").endswith(".gguf") and "/" not in e["path"] and "mmproj" not in e["path"]]
-    return sorted(out, key=lambda x: -x[1]) or None
+    return out or None
 
 
 def budget_octets(info) -> tuple:
@@ -234,15 +307,137 @@ def ram_warn(ui, m, path: Path):
                 "(measured cliff tg ~7). Take a smaller quant, or free RAM.")
 
 
-def choix_modele(ui) -> list:
+NON_LLM_WORDS = ("image", "clip", "whisper", "embedding", "embed", "rerank", "tts",
+                 "speech", "vocoder", "segment", "sam", "ocr", "bge")
+
+
+def dyn_model(ui, repo: str, lst: list) -> dict:
+    """entrée de catalogue fabriquée pour un dépôt unsloth choisi dans la liste HF.
+    prefix = préfixe commun des noms de poids, segment de quant retiré au préalable."""
+    base = repo.split("/", 1)[1][:-len("-GGUF")]
+    tag = re.sub(r"[^a-z0-9]", "", base.lower())[:14] or "model"
+    while any(x["tag"] == tag for x in MODELS):
+        tag = (tag + "z")[:16]
+    stems = []
+    for f, _ in lst:
+        n = Path(f).name
+        s = n[:-len(".gguf")]
+        h = quant_hint(n)
+        if h != n[:-len(".gguf")] and s.endswith("-" + h):
+            s = s[: -len(h) - 1]          # enlève le segment de quant : reste le nom du modèle
+        stems.append(s)
+    prefix = os.path.commonprefix(stems) or base
+    return dict(tag=tag, nom=base, prefix=prefix, repo=repo, dyn=True,
+                note="picked from the unsloth list on HF — new on this port: run calibration "
+                     "after download to size the bank",
+                fallback=min(lst, key=lambda x: x[1]),
+                serve="serve-generic.sh", envfile=f"machine-{tag}.env",
+                mtp=False, ctx_defaut=8192)
+
+
+def unsloth_browse(ui, info) -> dict | None:
+    """les autres GGUF d'unsloth sur HF, classés par téléchargements, chacun commenté selon
+    le budget de la machine : ⚠ quand même le plus petit quant dépasse le hot set RAM (ils
+    restent proposés, l'étape quant confirmera) ; exclus si le dépôt n'a pas de GGUF monofichier
+    à la racine. Rend le modèle dyn choisi, None (retour ou API injoignable)."""
+    url = ("https://huggingface.co/api/models?author=unsloth&search=GGUF"
+           "&sort=downloads&direction=-1&limit=100")
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            repos = [x["id"] for x in json.load(r)
+                     if x.get("id", "").endswith("-GGUF")
+                     and not any(w in x["id"].lower() for w in NON_LLM_WORDS)]
+    except Exception as e:
+        ui.warn(f"unsloth list: HF API unreachable ({e.__class__.__name__}) — sticking to the fixed list.")
+        return None
+    repos = repos[:40]
+    known = {x["repo"] for x in MODELS}
+    b, expl = budget_octets(info)
+    ui.say(f"unsloth: {len(repos)} GGUF repos on HF — checking their sizes against the budget ({expl}).\n"
+           "    note: this port's expert cache needs MoE models (llama-server refuses the rest:\n"
+           "    'MoE cache requires a MoE model') — prefer names carrying the active-size marker\n"
+           "    (...-A2B, -A3B, -A4B) or repos offering a *_MOE quant.")
+    sizes: dict = {}
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        fut = {ex.submit(_hf_tree, r): r for r in repos if r not in known}
+        done, total = 0, len(fut)
+        for f in as_completed(fut):
+            done += 1
+            try:
+                sizes[fut[f]] = _gguf_sizes(f.result())
+            except Exception:
+                sizes[fut[f]] = None
+            ui.progress(f"unsloth list: sizes checked {done}/{total}", done / total if total else 1.0)
+    fits, unknown, over = [], [], []
+    exotic = []
+    for r in repos:
+        if r in known:
+            continue
+        lst = sizes.get(r)
+        if lst is None:
+            unknown.append(f"{r}  (sizes unreadable on HF — try anyway)")
+        elif not lst:
+            exotic.append(r)
+            continue
+        f, s = min(lst, key=lambda x: x[1])
+        if s > b:
+            over.append(f"{r}  ⚠ even the smallest quant ({quant_hint(f)} {s / 2**30:.1f} GiB) is "
+                        f"over the {b / 2**30:.1f} GiB hot-set budget: will not fit in RAM here")
+        else:
+            fits.append(f"{r}  smallest quant {s / 2**30:.1f} GiB fits · up to {lst[0][1] / 2**30:.1f} GiB")
+    if exotic:
+        ui.say(f"{len(exotic)} repos left out: no single GGUF at the repo root (sub-folder or "
+               "sharded -of- layout — the downloader only handles single files): "
+               + ", ".join(x.split("/", 1)[1] for x in exotic[:5])
+               + (" …" if len(exotic) > 5 else ""))
+    labels = fits + unknown + over
+    if not labels:
+        ui.warn("unsloth list: nothing new to offer (every GGUF repo is already in the fixed list).")
+        return None
+    defaut = next((l for l in labels if "⚠" not in l), labels[0])
+    c = ui.ask(f"unsloth models on HF (budget: {expl}; ⚠ = does not fit this machine — "
+               "still selectable, with a confirmation):", labels + ["back to the fixed list"], defaut)
+    if c == "back to the fixed list":
+        return None
+    repo = c.split("  ", 1)[0]
+    lst = sizes.get(repo)
+    if not lst:
+        try:
+            lst = _gguf_sizes(_hf_tree(repo))
+        except Exception as e:
+            ui.warn(f"{repo}: HF API unreachable ({e.__class__.__name__}) — cannot list its quants.")
+            return None
+    return dyn_model(ui, repo, lst)
+
+
+def quant_hint(fname: str) -> str:
+    """le morceau de quant d'un nom de fichier (UD-IQ1_M, Q4_K_M, MXFP4_MOE…), pour le
+    commentaire de la liste unsloth ; le nom complet sinon."""
+    m = re.search(r"-((?:UD-)?[A-Z][A-Z0-9_]*)\.gguf$", fname)
+    return m.group(1) if m else Path(fname).stem
+
+
+def choix_modele(ui, info) -> list:
     """on installe UN modèle à la fois : on demande lequel d'abord, on ne descend
-    jamais les deux familles l'une après l'autre."""
+    jamais les familles l'une après l'autre ; l'option unsloth ouvre la liste complète
+    des GGUF publiés par unsloth sur HF, commentée selon le budget de la machine."""
+    browse = "another model: pick from unsloth's GGUF list on HF"
     etat = {m["tag"]: deja_present(m) for m in MODELS}
     labels = [f"{m['tag']} — {m['nom']} ({m['note']})"
               + (f" — weights already there: {etat[m['tag']].name}" if etat[m["tag"]] else "")
               for m in MODELS]
     defaut = next((i for i, m in enumerate(MODELS) if etat[m["tag"]]), 0)
-    c = ui.ask("which model to install?", labels, labels[defaut])
+    c = ui.ask("which model to install?", labels + [browse], labels[defaut])
+    if c == browse:
+        m = unsloth_browse(ui, info)
+        if m is None:
+            c = labels[defaut]
+        else:
+            if not any(x["tag"] == m["tag"] for x in MODELS):
+                MODELS.append(m)
+                save_extra_model(m)
+                ui.ok(f"{m['tag']}: added to the model list — it is offered again at the next start")
+            return [m]
     return [MODELS[labels.index(c)]]
 
 
@@ -539,6 +734,7 @@ def spec_choix(ui, m, saved=None):
                 ("none — no speculation", "none")]
     else:
         opts = [("ngram-mod — lookup speculation, script default (~2.4x on code-like sessions)", "ngram-mod"),
+                ("draft-mtp — only if the GGUF embeds an MTP head (calibration probes it)", "draft-mtp"),
                 ("none — no speculation", "none")]
     labels = [l for l, _ in opts]
     defaut = next((l for l, v in opts if v == saved), labels[0])
@@ -609,6 +805,7 @@ def serve_trio(ui, m) -> dict:
                              (("CTX", n), ("KVQ", k), ("SPEC", sp), ("EXTRA", x or None))
                              if vv is not None or kk == "EXTRA"})
     env = dict(os.environ)
+    env["TAG"] = m["tag"]     # serve-generic.sh dérive settings/machine/prof de ce tag
     if n:
         env["CTX"] = str(n)
     env["KVQ"], env["SPEC"], env["EXTRA"] = k, sp, x
@@ -754,7 +951,7 @@ def settings_step(ui, info, m):
 def full_setup(ui, info):
     """la suite de préparation d'un modèle : poids → build → calibrage (étapes 2-4)."""
     ui.step(2, "Model")
-    prets = models_step(ui, info, choix_modele(ui))
+    prets = models_step(ui, info, choix_modele(ui, info))
     ui.step(3, "Build")
     built = build_step(ui, info)
     ui.step(4, "Calibration")

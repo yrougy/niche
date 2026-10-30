@@ -26,8 +26,12 @@ The installer walks through, and reuses anything already present:
    `./llama.cpp` if `$LLAMA` is absent. The clone and the model directory `./models`
    are git-ignored, so nothing nested can pollute or recurse into this repository.
 3. **Model** — asks first which model to install: LFM2.5-24B-A2B (the default: the
-   fastest of the two) or Qwen3.6-35B-A3B,
-   one at a time — the other is never pulled alongside. It then picks the GGUF quant
+   fastest of the four), Qwen3.6-35B-A3B, Gemma-4-26B-A4B or GLM-4.7-Flash,
+   one at a time — the others are never pulled alongside. A last choice opens the full
+   list of GGUF repos published by unsloth on Hugging Face, each annotated with its size
+   range and flagged ⚠ when even its smallest quant is over the machine's RAM budget
+   (still selectable, with a confirmation); picked models join the list from then on
+   (`tools/models-extra.json`). It then picks the GGUF quant
    that fits the machine: it queries the Hugging Face
    API for real file sizes, computes a budget of `MemTotal − 3 GiB` (the constraint is
    the hot set in RAM, not VRAM), and prefers a quant whose quality step was already
@@ -45,6 +49,8 @@ The installer walks through, and reuses anything already present:
 | [unsloth/Qwen3.6-35B-A3B-GGUF](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF) | UD-IQ2_M | 41.5 tok/s |
 | same | UD-Q2_K_XL | 40.3 tok/s |
 | same | UD-Q3_K_M | 6.7 tok/s — cliff: hot set no longer fits the RAM budget |
+| [unsloth/gemma-4-26B-A4B-it-GGUF](https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF) | any (UD) | not benchmarked yet — served by `serve-generic.sh`, calibrate first |
+| [unsloth/GLM-4.7-Flash-GGUF](https://huggingface.co/unsloth/GLM-4.7-Flash-GGUF) | any (UD) | not benchmarked yet — served by `serve-generic.sh`, calibrate first (MTP head embedded) |
 
 The cliff at Q3_K_M is why quant selection is machine-adapted: one GiB too much and
 throughput collapses by 6×.
@@ -68,6 +74,7 @@ tools/setup.sh          headless variant of the same install (no TUI)
 tools/calibrate.sh      pin/bank measurement → machine-<model>.env
 tools/serve.sh          Qwen server (env overrides: MODEL CTX BANK_OVERRIDE PIN CORS EXTRA…)
 tools/serve-lfm.sh      LFM2.5 server
+tools/serve-generic.sh  any other model (TAG=…; bank from calibration, default 3072 MiB)
 tools/try.sh bench.sh   one-shot latency / benchmark harness
 tools/machine-lfm.env   measured parameters of the dev machine
 WORKLOG.md              full experiment journal (French) — measurements, dead ends, fixes
