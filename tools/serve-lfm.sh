@@ -4,6 +4,8 @@
 # Config mesurée (GTX 1070 8 GiB / 16 GB RAM, seed prof-lfm.csv) :
 #   CTX 65536 + bank 6656 → tg 47,4 / pp 972 / hit 99,2 %, 0 majflt en décode.
 #   CTX 131072 (max natif du modèle) + bank 6144 → tg 46,5 / pp 949 / hit 98,2 % (16/10 ; 6400 = OOM).
+#   Prod 1/11 = Q3_K_XL « gros » + cache AMONT (branche upstream-sync) : bank 5632 max à 131072 (6144 = OOM
+#   compute buffers sur ce quant), bench 74 / rep 111 t/s sous ngram-mod (A/B 1/11). Profil/pin/adapt ignorés.
 #   Bank 6912 = OOM CUDA à 65536 ; 7168 = OOM même à 8192.
 #   Plate de 8k à 64k, puis pente ≈ 48 MiB/8k (modèle hybride : ~11/40 couches KV, q4_0).
 # Pas de tête MTP dans ce GGUF → spec par lookup ngram. Spéculation ngram-mod par DÉFAUT
@@ -57,9 +59,18 @@ ADAPT=${ADAPT-512}   # --moe-cache-adapt N : ré-rankage live de la tier semée 
 ADAPTARGS=""; [ "${ADAPT:-0}" -ge 1 ] 2>/dev/null && ADAPTARGS="--moe-cache-adapt $ADAPT"
 
 fail() { echo "error: $*" >&2; exit 1; }
-[ -x "$BIN" ] || fail "binary $BIN missing — build llama.cpp (branch moe-expert-cache)"
+[ -x "$BIN" ] || fail "binary $BIN missing — build llama.cpp (branche moe-expert-cache ou upstream-sync)"
 [ -f "$MODEL" ] || fail "model $MODEL missing"
-[ -f "$PROFILE" ] || fail "profile $PROFILE missing — tools/profile.sh MODEL=$MODEL tools/prof-lfm.csv"
+
+# deux générations de cache MoE : fork moe-expert-cache (tier static semée par profil + adapt + pin) ou
+# cache amont (upstream-sync : SLRU en ligne, --moe-cache-mib seul). Détection par les flags du binaire.
+if "$BIN" --help 2>/dev/null | grep -q -- "--moe-cache-static"; then
+    MOE_GEN=moex
+    [ -f "$PROFILE" ] || fail "profile $PROFILE missing — tools/profile.sh MODEL=$MODEL tools/prof-lfm.csv"
+else
+    MOE_GEN=up
+    echo "note: cache MoE amont (SLRU) — profil/pin/adapt ignorés" >&2
+fi
 
 # plafond de bank mesuré sur cette machine : 6656 tient de CTX 8192 à 65536 ; à 131072 le plafond
 # tombe à ~6272 (6144 OK, 6400 OOM) → pente réelle ≈ 48 MiB/8k, on retire 64 MiB/8k (marge incluse).
@@ -86,11 +97,16 @@ OOMLOG=/tmp/.serve-lfm-oom-probe.log
 SRV=""
 trap '[ -n "$SRV" ] && kill -INT "$SRV" 2>/dev/null' INT TERM
 while :; do
+    # CACHEARGS construit dans la boucle : le retry OOM fait baisser BANK entre les tentatives
+    if [ "$MOE_GEN" = moex ]; then
+        CACHEARGS="--moe-cache-mib $BANK --moe-profile $PROFILE --moe-cache-static --moe-cache-pin-mib $PIN $ADAPTARGS --moe-stats $MOE_STATS"
+    else
+        CACHEARGS="--moe-cache-mib $BANK"
+    fi
     "$BIN" -m "$MODEL" \
         -ngl 99 -cmoe \
-        --moe-cache-mib "$BANK" --moe-profile "$PROFILE" --moe-cache-static --moe-cache-pin-mib "$PIN" \
-        $ADAPTARGS $SPECARGS \
-        --moe-stats "$MOE_STATS" \
+        $CACHEARGS \
+        $SPECARGS \
         --host "$HOST" --port "$PORT" \
         -c "$CTX" -fa on $KVARGS -ub 512 \
         -t "${THREADS:-8}" --threads-batch "${THREADS:-8}" --parallel 1 \
