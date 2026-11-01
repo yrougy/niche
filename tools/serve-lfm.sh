@@ -51,6 +51,7 @@ TOPK=${TOPK:-50}      # model card LFM2.5
 RPEN=${RPEN:-1.05}   # model card LFM2.5
 KVQ=${KVQ:-q4_0}   # quant du KV : q8_0 = moitié de f16 sans perte mesurable ; q4_0 = référence mesurée ; f16 = pas de quant
 KVARGS="--cache-type-k $KVQ --cache-type-v $KVQ"
+VARG=""; [ -n "${VERB:-}" ] && VARG="-v"   # -v : lignes INFO du cache MoE (taille/slots, hit rate au SIGINT) — coût tg nul
 EXTRA=${EXTRA:-}   # options personnelles en texte libre (menu niche.sh, clé EXTRA) : ajoutées en dernier, découpage sur les espaces, pas de guillemets
 
 SPEC=${SPEC:-ngram-mod}
@@ -106,7 +107,7 @@ while :; do
     "$BIN" -m "$MODEL" \
         -ngl 99 -cmoe \
         $CACHEARGS \
-        $SPECARGS \
+        $SPECARGS $VARG \
         --host "$HOST" --port "$PORT" \
         -c "$CTX" -fa on $KVARGS -ub 512 \
         -t "${THREADS:-8}" --threads-batch "${THREADS:-8}" --parallel 1 \
