@@ -10,3 +10,4 @@ llama.cpp
 /models
 .crush/
 tools/models-extra.json
+memory/

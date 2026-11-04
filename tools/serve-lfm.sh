@@ -39,6 +39,7 @@ ENVFILE=${ENVFILE:-$HERE/tools/machine-lfm.env}   # tools/calibrate.sh lfm … �
 
 LLAMA=$(realpath -m "${LLAMA:-$HERE/llama.cpp}")   # absolus : le serveur ne résout pas le relatif
 BIN=$LLAMA/build/bin/llama-server
+. "$HERE/tools/cache_gen.sh" "$BIN"
 MODEL=$(realpath -m "${MODEL:-$HERE/models/LFM2.5-24B-A2B-UD-IQ3_XXS.gguf}")
 PROFILE=$(realpath -m "${PROFILE:-$HERE/tools/prof-lfm.csv}")   # toujours absolu
 CTX=${CTX:-65536}
@@ -64,12 +65,10 @@ fail() { echo "error: $*" >&2; exit 1; }
 [ -f "$MODEL" ] || fail "model $MODEL missing"
 
 # deux générations de cache MoE : fork moe-expert-cache (tier static semée par profil + adapt + pin) ou
-# cache amont (upstream-sync : SLRU en ligne, --moe-cache-mib seul). Détection par les flags du binaire.
-if "$BIN" --help 2>/dev/null | grep -q -- "--moe-cache-static"; then
-    MOE_GEN=moex
+# cache amont (upstream-sync : SLRU en ligne, --moe-cache-mib seul) — MOE_GEN posé par tools/cache_gen.sh
+if [ "$MOE_GEN" = moex ]; then
     [ -f "$PROFILE" ] || fail "profile $PROFILE missing — tools/profile.sh MODEL=$MODEL tools/prof-lfm.csv"
 else
-    MOE_GEN=up
     echo "note: cache MoE amont (SLRU) — profil/pin/adapt ignorés" >&2
 fi
 

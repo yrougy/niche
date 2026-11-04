@@ -30,6 +30,7 @@ ENVFILE=${ENVFILE:-$HERE/tools/machine-$TAG.env}   # tools/calibrate.sh $TAG …
 
 LLAMA=$(realpath -m "${LLAMA:-$HERE/llama.cpp}")   # absolus : le serveur ne résout pas le relatif
 BIN=$LLAMA/build/bin/llama-server
+. "$HERE/tools/cache_gen.sh" "$BIN"
 MODEL=$(realpath -m "${MODEL:?MODEL= requis — choisissez le poids dans le menu niche.sh}")
 PROFILE=$(realpath -m "${PROFILE:-$HERE/tools/prof-$TAG.csv}")
 CTX=${CTX:-8192}
@@ -56,7 +57,7 @@ IS_MOE=${IS_MOE:-${MOE:-1}}; IS_NEXTN=${IS_NEXTN:-${NEXTN:-${MODEL_HAS_NEXTN:-0}
 if [ "$IS_MOE" -lt 1 ]; then
     ADAPT=0
 else
-    [ -f "$PROFILE" ] || fail "profile $PROFILE missing — run tools/calibrate.sh $TAG $MODEL first (also sizes the bank)"
+    [ "$MOE_GEN" = up ] || { [ -f "$PROFILE" ] || fail "profile $PROFILE missing — run tools/calibrate.sh $TAG $MODEL first (also sizes the bank)"; }
 fi
 if [ -f "$ENVFILE" ]; then
     CALMODEL=$(grep -m1 '^MODEL=' "$ENVFILE" | sed -E 's/^MODEL=\$\{MODEL:-(.*)\}$/\1/')
@@ -85,7 +86,13 @@ ADAPTARGS=""; [ "${ADAPT:-0}" -ge 1 ] 2>/dev/null && ADAPTARGS="--moe-cache-adap
 CORSARGS=""; [ -n "${CORS:-}" ] && CORSARGS="--cors-origins $CORS"
 
 if [ "$IS_MOE" -ge 1 ]; then
-    MOEARGS="-cmoe --moe-cache-mib $BANK --moe-profile $PROFILE --moe-cache-static --moe-cache-pin-mib $PIN $ADAPTARGS --moe-stats $MOE_STATS"
+    # cache amont (upstream-sync) : SLRU, --moe-cache-mib seul — même args au 1er essai et au retry OOM
+    if [ "$MOE_GEN" = moex ]; then
+        moe_args() { echo "-cmoe --moe-cache-mib $BANK --moe-profile $PROFILE --moe-cache-static --moe-cache-pin-mib $PIN $ADAPTARGS --moe-stats $MOE_STATS"; }
+    else
+        moe_args() { echo "-cmoe --moe-cache-mib $BANK"; }
+    fi
+    MOEARGS=$(moe_args)
     echo "llama-server MoE cache ($TAG): CTX=$CTX bank=${BANK} MiB pin=${PIN} MiB spec=${SPEC:-none} http://$HOST:$PORT (Ctrl-C to stop)"
 else
     MOEARGS=""
@@ -110,7 +117,7 @@ while :; do
     wait "$SRV"; rc=$?
     if [ "$rc" -ne 0 ] && [ "$IS_MOE" -ge 1 ] && grep -qiE 'cudaMalloc failed|out of memory|failed to allocate' "$OOMLOG" && [ "$BANK" -gt 2048 ]; then
         OLD=$BANK; BANK=$(( BANK - 512 )); [ "$BANK" -lt 2048 ] && BANK=2048
-        MOEARGS="-cmoe --moe-cache-mib $BANK --moe-profile $PROFILE --moe-cache-static --moe-cache-pin-mib $PIN $ADAPTARGS --moe-stats $MOE_STATS"
+        MOEARGS=$(moe_args)
         echo "WARNING: VRAM OOM au bank ${OLD} (CTX=$CTX) — nouvelle tentative au bank $BANK. tools/calibrate.sh $TAG $MODEL mesure le plafond réel." >&2
         continue
     fi

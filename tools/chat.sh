@@ -12,6 +12,7 @@ set -u
 HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
 LLAMA=$(realpath -m "${LLAMA:-$HERE/llama.cpp}")   # absolu : on cd dans $LLAMA avant de lancer $BIN
 BIN=$LLAMA/build/bin/llama-cli
+. "$HERE/tools/cache_gen.sh" "$BIN"
 MODEL=$(realpath -m "${MODEL:-$HERE/models/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}")
 PROFILE=$(realpath -m "${PROFILE:-$HERE/tools/prof3.csv}")
 OUT=/tmp/chat
@@ -21,7 +22,7 @@ CACHE_MIB=${CACHE_MIB:-4096}
 fail() { echo "ERREUR : $*" >&2; exit 1; }
 [ -x "$BIN" ] || fail "binaire $BIN absent — construire llama.cpp sur moe-expert-cache"
 [ -f "$MODEL" ] || fail "modèle $MODEL absent"
-[ -f "$PROFILE" ] || fail "profil $PROFILE absent"
+if [ "$MODE" != off ] && [ "$MOE_GEN" != up ]; then [ -f "$PROFILE" ] || fail "profil $PROFILE absent"; fi
 
 case "$MODE" in
     fb)     CACHE="--moe-cache-mib $CACHE_MIB --moe-profile $PROFILE --moe-cache-static --moe-cache-cpu-fallback --moe-cache-pin-mib 1990" ;;
@@ -30,6 +31,8 @@ case "$MODE" in
     off)    CACHE="" ;;
     *) fail "mode inconnue : $MODE (fb|static|lru|off)" ;;
 esac
+if [ "$MOE_GEN" = up ] && [ "$MODE" != off ]; then CACHE="--moe-cache-mib $CACHE_MIB"; fi
+STATSARG=""; [ "$MOE_GEN" = moex ] && STATSARG="--moe-stats $OUT/stats.csv"
 
 mkdir -p "$OUT" && rm -f "$OUT"/*
 MON=$OUT/monitor.txt
@@ -55,7 +58,7 @@ echo
 WATCHPID=$!
 
 cd "$LLAMA"
-"$BIN" -m "$MODEL" -cmoe -ngl 99 $CACHE --moe-stats "$OUT/stats.csv" \
+"$BIN" -m "$MODEL" -cmoe -ngl 99 $CACHE $STATSARG \
     -c 2048 --temp 0 -s 42 2> >(tee -a "$LOG" >&2)
 
 kill "$WATCHPID" 2>/dev/null
@@ -71,4 +74,4 @@ if [ -s "$MON" ]; then
          {m=a[2]; d=c[2]}
          END{printf "majflt delta = %d, lectures disque = %.2f MiB, samples = %d\n", m-m0, (d-d0)/1048576, NR}' "$MON"
 fi
-echo "Fichiers : $LOG, $MON, $OUT/stats.csv (--moe-stats CSV)."
+if [ "$MOE_GEN" = moex ]; then echo "Fichiers : $LOG, $MON, $OUT/stats.csv (--moe-stats CSV)."; else echo "Fichiers : $LOG, $MON (cache amont : hit rate dans le log avec -v, pas de CSV)"; fi

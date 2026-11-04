@@ -22,6 +22,7 @@ set -u
 HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
 LLAMA=$(realpath -m "${LLAMA:-$HERE/llama.cpp}")   # absolu : on cd dans $LLAMA avant de lancer $BIN
 BIN=$LLAMA/build/bin/llama-server
+. "$HERE/tools/cache_gen.sh" "$BIN"
 MODEL=$(realpath -m "${MODEL:-$HERE/models/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}")
 PROFILE=$(realpath -m "${PROFILE:-$HERE/tools/prof3.csv}")
 OUT=/tmp/bench
@@ -42,7 +43,7 @@ PORT=${PORT:-8002}
 fail() { echo "error: $*" >&2; exit 1; }
 [ -x "$BIN" ] || fail "binary $BIN missing — build llama.cpp on moe-expert-cache"
 [ -f "$MODEL" ] || fail "model $MODEL missing"
-case "$MODE" in off) ;; *) [ -f "$PROFILE" ] || fail "profile $PROFILE missing (absolute path advised — the server does not resolve relative paths)" ;; esac
+case "$MODE" in off) ;; *) [ "$MOE_GEN" = up ] || { [ -f "$PROFILE" ] || fail "profile $PROFILE missing (absolute path advised — the server does not resolve relative paths)"; } ;; esac
 
 case "$MODE" in
     fb)     BASE="-ngl 99 -cmoe"; CACHE="--moe-cache-mib $CACHE_MIB --moe-profile $PROFILE --moe-cache-static --moe-cache-cpu-fallback --moe-cache-pin-mib 1990"; [ "$TAIL_SKIP" != 0 ] && CACHE="$CACHE --moe-cache-tail-skip $TAIL_SKIP"; [ "$ADAPT" != 0 ] && CACHE="$CACHE --moe-cache-adapt $ADAPT" ;;
@@ -51,6 +52,10 @@ case "$MODE" in
     off)    BASE=""; CACHE="" ;;
     *) fail "unknown mode: $MODE (fb|static|lru|off)" ;;
 esac
+if [ "$MOE_GEN" = up ] && [ "$MODE" != off ]; then
+    [ "$MODE" = static ] || echo "note: cache amont — mode $MODE replié sur --moe-cache-mib seul (pas de fb/lru/tail-skip/adapt)" >&2
+    CACHE="--moe-cache-mib $CACHE_MIB"
+fi
 
 mkdir -p "$OUT" && rm -f "$OUT"/*
 MON=$OUT/monitor.txt
@@ -78,10 +83,11 @@ trap cleanup EXIT INT TERM
 echo "=== starting llama-server (mode: $MODE${TAIL_SKIP:+ tail-skip $TAIL_SKIP}${SPEC:++ MTP}) ==="
 cd "$LLAMA"
 VFLAG=""; [ "$VERB" = 1 ] && VFLAG="-v"
+STATSARG=""; [ "$MOE_GEN" = moex ] && STATSARG="--moe-stats $OUT/stats.csv"
 "$BIN" -m "$MODEL" $BASE $CACHE $SPEC $VFLAG --host 127.0.0.1 --port "$PORT" \
     -c "$CTX" -fa on --cache-type-k q4_0 --cache-type-v q4_0 -ub 512 \
     -t "$THREADS" --threads-batch "$THREADS" --parallel 1 --temp 0 -s 42 \
-    --moe-stats "$OUT/stats.csv" > "$LOG" 2>&1 &
+    $STATSARG > "$LOG" 2>&1 &
 SRV=$!
 
 for _ in $(seq 1 300); do

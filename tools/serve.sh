@@ -19,6 +19,7 @@ set -u
 HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
 LLAMA=$(realpath -m "${LLAMA:-$HERE/llama.cpp}")   # absolus : le serveur ne résout pas le relatif
 BIN=$LLAMA/build/bin/llama-server
+. "$HERE/tools/cache_gen.sh" "$BIN"
 # choix enregistrés par le menu niche.sh (env exporté gagne, puis settings, puis calibrage machine-qwen.env) :
 SETFILE=${SETFILE:-$HERE/tools/settings-qwen.env}
 [ -f "$SETFILE" ] && source "$SETFILE"
@@ -58,10 +59,16 @@ SPEC=${SPEC:-}
 [ -z "$SPEC" ] && [ "$MTP" = 1 ] && SPEC=draft-mtp
 SPECARGS=""; [ -n "$SPEC" ] && SPECARGS="--spec-type $SPEC"
 CORSARGS=""; [ -n "${CORS:-}" ] && CORSARGS="--cors-origins $CORS"   # ex. CORS=http://hote:8002 pour autoriser une UI web distante
+if [ "$MOE_GEN" = moex ]; then
+    CACHEARGS="--moe-cache-mib $BANK --moe-profile $PROFILE --moe-cache-static --moe-cache-pin-mib $PIN $ADAPTARGS"
+else
+    echo "note: cache MoE amont (SLRU) — profil/pin/adapt ignorés" >&2
+    CACHEARGS="--moe-cache-mib $BANK"
+fi
 exec "$BIN" -m "$MODEL" \
     -ngl 99 -cmoe \
-    --moe-cache-mib "$BANK" --moe-profile "$PROFILE" --moe-cache-static --moe-cache-pin-mib "$PIN" \
-    $ADAPTARGS $SPECARGS \
+    $CACHEARGS \
+    $SPECARGS \
     --host "$HOST" --port "$PORT" \
     -c "$CTX" -fa on $KVARGS -ub 512 \
     -t 8 --threads-batch 8 --parallel 1 --metrics --slots --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command \

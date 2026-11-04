@@ -29,6 +29,8 @@ case "$MODEL" in
 esac
 [ -f "$MODEL" ] || fail "model $MODEL missing"
 [ -x "$BIN" ] || fail "binary $BIN missing — tools/setup.sh builds the port"
+. "$HERE/tools/cache_gen.sh" "$BIN"
+if [ "$MOE_GEN" = up ]; then SKIP_PROFILE=1; echo "note: cache amont (SLRU) — pas de profil de routage (SKIP_PROFILE=1 implicite)"; fi
 
 # sonde d'architecture sur le GGUF : un modèle dense n'a ni bank à dimensionner ni profil à
 # bâtir. Manuel : IS_MOE=0|1 IS_NEXTN=0|1.
@@ -101,7 +103,7 @@ if [ "$HAS_MOE" -ge 1 ] && [ "${SKIP_PROFILE:-0}" != 1 ]; then
     echo "== routing profile (off config) -> $PROFILE =="
     CTX=$CTX PP_N=$PP_N TG_N=$TG_N THREADS=$THREADS MODEL=$MODEL "$HERE/tools/profile.sh" "$PROFILE" >/dev/null || fail "profile.sh failed"
 fi
-if [ "$HAS_MOE" -ge 1 ]; then [ -f "$PROFILE" ] || fail "profile $PROFILE missing"; fi
+if [ "$HAS_MOE" -ge 1 ] && [ "$MOE_GEN" != up ]; then [ -f "$PROFILE" ] || fail "profile $PROFILE missing"; fi
 
 # ---------- 4. plafond de bank (VRAM) ----------
 CAP=$(( VRAM - 640 ))   # réserve non-experts + KV + compute

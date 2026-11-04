@@ -11,6 +11,7 @@ set -u
 HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
 LLAMA=$(realpath -m "${LLAMA:-$HERE/llama.cpp}")   # absolu : on cd dans $LLAMA
 BIN=$LLAMA/build/bin/llama-server
+"$BIN" --help 2>/dev/null | grep -q -- "--moe-profile-output" || { echo "error: $BIN ne connaît pas --moe-profile-output — le relevé de routage exige la branche fork moe-expert-cache (le cache amont n'a pas besoin de profil : calibrate.sh fait SKIP_PROFILE=1 automatiquement)" >&2; exit 1; }
 MODEL=$(realpath -m "${MODEL:-$HERE/models/Qwen3.6-35B-A3B-UD-IQ2_M.gguf}")
 OUT=${1:-$HERE/tools/prof3.csv}
 case "$OUT" in /*) ;; *) OUT=$PWD/$OUT ;; esac

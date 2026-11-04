@@ -143,6 +143,19 @@ def llama_dir() -> Path:
     return Path(os.environ.get("LLAMA", str(ROOT / "llama.cpp"))).resolve()
 
 
+def moe_gen() -> str:
+    """génération de cache MoE du binaire build/bin : 'moex' (fork moe-expert-cache, sémantique
+    --moe-cache-static) ou 'up' (cache amont SLRU, --moe-cache-mib seul). Miroir de tools/cache_gen.sh."""
+    b = llama_dir() / "build" / "bin" / "llama-server"
+    try:
+        r = subprocess.run([str(b), "--help"], capture_output=True, text=True, timeout=15)
+        if "--moe-cache-static" in (r.stdout or "") + (r.stderr or ""):
+            return "moex"
+    except Exception:
+        pass
+    return "up"
+
+
 def gguf_dirs() -> list:
     """où chercher un poids déjà téléchargé ailleurs que MODEL_DIR (GGUF_DIRS, ':' séparé)."""
     home = Path.home()
@@ -706,6 +719,8 @@ def setup_existe(m, info) -> bool:
     """un setup prêt à servir tel quel : poids + binaire + profil de routage (calibré ou défaut)."""
     if not info["bin"].is_file() or deja_present(m) is None:
         return False
+    if moe_gen() == "up":   # cache amont SLRU : pas de profil de routage requis
+        return True
     envf = HERE / m["envfile"]
     if envf.is_file() and "PROFILE=" in envf.read_text():
         return True
@@ -893,8 +908,10 @@ def settings_step(ui, info, m):
                f"PORT={st.get('PORT') or 8002}")
         if st.get("EXTRA"):
             ui.say(f"{tag} extra options: {st['EXTRA']}")
-        choix = ["context size", "KV cache quantization", "speculation policy",
-                 "live tier adaptation (ADAPT)", "server port",
+        choix = ["context size", "KV cache quantization", "speculation policy"]
+        if moe_gen() == "moex":   # ADAPT/la tier vivent : cache amont = SLRU, rien à régler
+            choix.append("live tier adaptation (ADAPT)")
+        choix += ["server port",
                  "your own extra llama-server options (text box)", "weight file (already downloaded)",
                  "download another quant of this family", "back to the menu"]
         c = ui.ask(f"{tag} settings: what to change?", choix, choix[0])
