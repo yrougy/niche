@@ -96,6 +96,25 @@ MODELS = [
               (16384, "unmeasured on this machine"),
               (32768, "unmeasured; KV heavy (MHA): watch RAM"),
               (65536, "unmeasured; KV heavy (MHA): watch RAM")]),
+    dict(tag="inkling", nom="Inkling-2-Mini", prefix="Inkling-2-Mini",
+         repo="unsloth/Inkling-2-Mini-GGUF", mainline="Mainline_Support",
+         note="26.4B MoE (5.4B active, 128 experts top-8), 24 physical layers + loop core 6-17 "
+             "run 3 passes → 48 KV slots + conv state: KV-heavy, keep CTX modest; vision "
+             "(mmproj-F16 optional, add via EXTRA=--mmproj …); sampling: temp 1.0 top-p 1.0 "
+             "top-k 0 min-p 0; speculation = DSpark drafter (draft file), NOT MTP; needs "
+             "llama.cpp >= b12611 (loop NVFP4 fix #32704 — ours is 12739); the unsloth root "
+             "GGUFs are unsloth's private layout: this menu fetches the Mainline_Support ones",
+         fallback=("Mainline_Support/Inkling-2-Mini-UD-IQ2_XXS.gguf_file", 8 * 2**30),
+         draft=("Mainline_Support/dspark-Inkling-2-Mini-Q8_0.gguf_file", 480 * 2**20),
+         serve="serve-generic.sh", envfile="machine-inkling.env", mtp=False, ctx_defaut=8192,
+         ctxs=[(8192, "measured: bank ceiling 2048 at CTX 8192, KV 146 MiB/8k"),
+              (16384, "unmeasured; 48 KV slots + conv state: KV grows fast, watch RAM/VRAM"),
+              (32768, "mainline's own example size — unmeasured here")],
+         mesure={"UD-IQ2_XXS": "tg 10.1 measured 25/11 @ bank 2048 ceiling (hit 65 %; tg 7.9 "
+                              "cache-off) — the slowest MoE of this port, LFM still wins"},
+         evite={"UD-Q3_K_XL": "> 13.6 GiB: past the measured RAM wall (all 48 loop slots are hot)",
+               "UD-IQ4_XS": "> 15.7 GiB: does not fit in 15 GiB RAM",
+               "UD-Q4_K_XL": "> 17.6 GiB: does not fit in RAM"}),
 ]
 BRANCHE = "moe-expert-cache"
 FORK = "https://github.com/yrougy/llama-moe-cache.git"
@@ -166,8 +185,25 @@ def gguf_dirs() -> list:
 
 
 def quant_of(fname: str, prefix: str) -> str:
-    """le suffixe de quant d'un fichier : UD-Q2_K_XL ggé de « prefix-UD-Q2_K_XL.gguf »."""
-    return fname[len(prefix) + 1:-len(".gguf")]
+    """le suffixe de quant d'un fichier : UD-Q2_K_XL ggé de « prefix-UD-Q2_K_XL.gguf ».
+    Accepte les chemins de dépôt (sous-dossier + .gguf_file) via guf_name."""
+    n = guf_name(fname)
+    if n.startswith(prefix + "-"):
+        n = n[len(prefix) + 1:]
+    return n[:-len(".gguf")] if n.endswith(".gguf") else n
+
+
+def guf_name(fname: str) -> str:
+    """nom local d'un fichier du dépôt HF : sous-dossier retiré, .gguf_file → .gguf
+    (dépôts unsloth dont la version mainline vit dans Mainline_Support/)."""
+    return Path(fname).name.removesuffix("_file")
+
+
+def repo_path(m, local: str) -> str:
+    """chemin dans le dépôt HF pour un nom local (sous-dossier mainline + .gguf_file si le
+    modèle est de ce layout) — inverse de guf_name, pour reprendre un téléchargement."""
+    ml = m.get("mainline")
+    return f"{ml}/{local}_file" if ml else local
 
 
 def deja_present(m) -> Path | None:
@@ -184,20 +220,27 @@ def deja_present(m) -> Path | None:
                                        c.stat().st_size))
 
 
-def _hf_tree(repo: str):
-    with urllib.request.urlopen(f"https://huggingface.co/api/models/{repo}/tree/main", timeout=15) as r:
+def _hf_tree(repo: str, sub: str = ""):
+    with urllib.request.urlopen(f"https://huggingface.co/api/models/{repo}/tree/main/{sub}", timeout=15) as r:
         return json.load(r)
 
 
-def _gguf_sizes(tree) -> list:
-    """[(fichier, octets)] des .gguf d'un arbre HF, hors mmproj, brouillon MTP séparé
-    (mtp-*.gguf) et fichiers annexes (imatrix…, sans segment de quant en majuscules), du plus
-    gros au plus petit."""
-    out = [(e["path"], int(e.get("size", 0))) for e in tree
-           if e.get("path", "").endswith(".gguf") and "/" not in e["path"]
-           and "mmproj" not in e["path"] and not Path(e["path"]).name.startswith("mtp-")
-           and int(e.get("size", 0)) > 0
-           and re.search(r"-[A-Z0-9_]*[A-Z][A-Z0-9_]*\.gguf$", e["path"])]
+def _gguf_sizes(tree, mainline: str | None = None) -> list:
+    """[(fichier, octets)] des .gguf d'un arbre HF, hors mmproj, brouillons séparés
+    (mtp-*, dspark-*) et fichiers annexes (imatrix…, sans segment de quant en majuscules), du
+    plus gros au plus petit. mainline=<sous-dossier> : uniquement les .gguf_file de ce
+    sous-dossier (layout mainline d'un dépôt unsloth), jamais les .gguf racine."""
+    out = []
+    for e in tree:
+        p, s = e.get("path", ""), int(e.get("size", 0))
+        low = p.lower()
+        if s <= 0 or "mmproj" in low or "dspark" in low or Path(p).name.startswith("mtp-"):
+            continue
+        if mainline:
+            if p.startswith(mainline + "/") and p.endswith(".gguf_file"):
+                out.append((p, s))
+        elif "/" not in p and p.endswith(".gguf") and re.search(r"-[A-Z0-9_]*[A-Z][A-Z0-9_]*\.gguf$", p):
+            out.append((p, s))
     return sorted(out, key=lambda x: -x[1])
 
 
@@ -205,7 +248,12 @@ def hf_listing(ui, m) -> list | None:
     """[(fichier, octets)] des .gguf de la famille (ceux du prefix seulement), du plus gros au
     plus petit ; None si l'API est injoignable."""
     try:
-        out = [x for x in _gguf_sizes(_hf_tree(m["repo"])) if x[0].startswith(m["prefix"] + "-")]
+        ml = m.get("mainline")
+        tree = _hf_tree(m["repo"])
+        if ml:
+            tree += _hf_tree(m["repo"], ml)   # l'API HF ne liste pas les sous-dossiers en récursif
+        out = [x for x in _gguf_sizes(tree, ml)
+               if guf_name(x[0]).startswith(m["prefix"] + "-") and (ml is None or "/" in x[0])]
     except Exception as e:
         ui.warn(f"{m['tag']}: HF API unreachable ({e.__class__.__name__}) — falling back to the default quant.")
         return None
@@ -426,7 +474,7 @@ def unsloth_browse(ui, info) -> dict | None:
 def quant_hint(fname: str) -> str:
     """le morceau de quant d'un nom de fichier (UD-IQ1_M, Q4_K_M, MXFP4_MOE…), pour le
     commentaire de la liste unsloth ; le nom complet sinon."""
-    m = re.search(r"-((?:UD-)?[A-Z][A-Z0-9_]*)\.gguf$", fname)
+    m = re.search(r"-((?:UD-)?[A-Z][A-Z0-9_]*)\.gguf(_file)?$", fname)
     return m.group(1) if m else Path(fname).stem
 
 
@@ -503,7 +551,7 @@ def models_step(ui, info, mods: list) -> dict:
             if ui.ask(f"{m['tag']}: resume this download?", ["resume", "skip"], "resume") == "skip":
                 continue
             fname = part.name[:-len(".part")]
-            if download(ui, m, fname, model_dir() / fname, max(2**30, int(part.stat().st_size * 0.5))):
+            if download(ui, m, repo_path(m, fname), model_dir() / fname, max(2**30, int(part.stat().st_size * 0.5))):
                 prets[m["tag"]] = model_dir() / fname
             if m["tag"] in prets:
                 ram_warn(ui, m, prets[m["tag"]])
@@ -512,7 +560,7 @@ def models_step(ui, info, mods: list) -> dict:
         if ch is None:
             continue
         fname, octets = ch
-        cible = model_dir() / fname
+        cible = model_dir() / guf_name(fname)
         if download(ui, m, fname, cible, max(2**30, int(octets * 0.99))):
             prets[m["tag"]] = cible
             if quant_of(fname, m["prefix"]) != quant_of(m["fallback"][0], m["prefix"]):
@@ -520,6 +568,15 @@ def models_step(ui, info, mods: list) -> dict:
                         "depends on the quant: re-run calibration after download.")
         if m["tag"] in prets:
             ram_warn(ui, m, prets[m["tag"]])
+            if m.get("draft"):
+                dp = model_dir() / guf_name(m["draft"][0])
+                if dp.is_file():
+                    ui.ok(f"{m['tag']}: drafter already there — {dp.name}")
+                elif ui.ask(f"{m['tag']}: download the separate drafter (spec add-on, "
+                            f"~{m['draft'][1] / 2**20:.0f} MiB)?", ["download", "skip"], "download") == "download":
+                    if download(ui, m, m["draft"][0], dp, int(m["draft"][1] * 0.9)):
+                        settings_save(m["tag"], {"SPEC": "draft-dspark", "DRAFT": str(dp)})
+                        ui.ok(f"{m['tag']}: SPEC=draft-dspark + DRAFT= saved in settings-{m['tag']}.env")
     if not prets:
         ui.fail("no model ready", "relaunch and pick a quant (or 'another quant (full list)')")
     return prets
@@ -751,6 +808,9 @@ def spec_choix(ui, m, saved=None):
         opts = [("ngram-mod — lookup speculation, script default (~2.4x on code-like sessions)", "ngram-mod"),
                 ("draft-mtp — only if the GGUF embeds an MTP head (calibration probes it)", "draft-mtp"),
                 ("none — no speculation", "none")]
+        if m.get("draft"):
+            opts.insert(1, ("draft-dspark — the separate drafter downloaded with the model "
+                            "(SPEC and DRAFT are remembered; needs llama.cpp >= b12649)", "draft-dspark"))
     labels = [l for l, _ in opts]
     defaut = next((l for l, v in opts if v == saved), labels[0])
     c = ui.ask(f"{m['tag']}: speculation policy?", labels, defaut)
@@ -824,6 +884,15 @@ def serve_trio(ui, m) -> dict:
     if n:
         env["CTX"] = str(n)
     env["KVQ"], env["SPEC"], env["EXTRA"] = k, sp, x
+    if sp == "draft-dspark" and m.get("draft"):
+        dp = model_dir() / guf_name(m["draft"][0])
+        if dp.is_file():
+            env["DRAFT"] = str(dp)
+            settings_save(m["tag"], {"DRAFT": str(dp)})
+        else:
+            ui.warn(f"{m['tag']}: SPEC=draft-dspark but {dp.name} is missing — falling back to "
+                    "ngram-mod (re-download it in the Models step)")
+            sp = env["SPEC"] = "ngram-mod"
     mm = st.get("MODEL") or (str(deja_present(m)) if deja_present(m) else None)
     if mm:
         env["MODEL"] = mm

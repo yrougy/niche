@@ -10,6 +10,10 @@
 # Hiérarchie (comme les autres serve) : env exporté > tools/settings-<TAG>.env > machine-<TAG>.env.
 # KV : KVQ= q8_0 | q4_0 (défaut) | f16. Spec : SPEC= (défaut : draft-mtp si le GGUF a des
 # couches nextn — MODEL_HAS_NEXTN écrit par calibrate.sh — sinon ngram-mod ; none désactive).
+# Brouillon séparé : DRAFT=<gguf> ajoute --model-draft (ex. drafter DSpark d'inkling :
+# SPEC=draft-dspark + DRAFT=models/dspark-…gguf, posés par le menu quand le brouillon est téléchargé).
+# Échantillonnage : TEMP= TOPP= TOPK= MINP= RPEN= — seul ce qui est posé est passé au serveur
+# (inkling demande temp 1.0 top-p 1.0 top-k 0 min-p 0 : posés dans settings-inkling.env).
 # Adapt : ADAPT= (--moe-cache-adapt), défaut 512, 0 désactive.
 # Dense : les modèles SANS experts (ex. Gemma-4 12B) sont sondés dans le GGUF (tools/gguf_meta.py
 # --flags) et servis sans cache MoE ni profil : pas de --moe-*, pas de bank, pas de PIN. Forcer :
@@ -40,6 +44,7 @@ PIN=${PIN:-1990}
 MOE_STATS=${MOE_STATS:-/tmp/moe-stats-$TAG.csv}
 KVQ=${KVQ:-q4_0}   # quant du KV : q8_0 = moitié de f16 sans perte mesurable ; q4_0 = défaut ; f16 = aucun
 KVARGS="--cache-type-k $KVQ --cache-type-v $KVQ"
+VARG=""; [ -n "${VERB:-}" ] && VARG="-v"   # -v : INFO du cache amont (taille au boot, hit rate au SIGINT)
 EXTRA=${EXTRA:-}   # options personnelles en texte libre (menu niche.sh, clé EXTRA), en dernier
 
 [ -x "$BIN" ] || fail "binary $BIN missing — build llama.cpp (branch moe-expert-cache)"
@@ -81,6 +86,24 @@ if [ -z "$SPEC" ]; then
     if [ "$IS_NEXTN" -ge 1 ] 2>/dev/null; then SPEC=draft-mtp; else SPEC=ngram-mod; fi
 fi
 SPECARGS=""; [ -n "$SPEC" ] && SPECARGS="--spec-type $SPEC"
+# brouillon de spec séparé (DSpark d'inkling, MTP externe de gemma4 via EXTRA de préférence) :
+# le brouillon DSpark emprunte les plongements du cible — ne pas le pincer sur un device séparé.
+DRAFTARGS=""
+if [ -n "${DRAFT:-}" ]; then
+    DRAFT=$(realpath -m "$DRAFT")
+    if [ -f "$DRAFT" ]; then
+        DRAFTARGS="--model-draft $DRAFT"
+    else
+        echo "WARNING: DRAFT=$DRAFT introuvable — spéculation désactivée (retire DRAFT= des settings)" >&2
+        SPEC=""; SPECARGS=""
+    fi
+fi
+SAMPLARGS=""
+[ -n "${TEMP:-}" ] && SAMPLARGS="$SAMPLARGS --temp $TEMP"
+[ -n "${TOPP:-}" ] && SAMPLARGS="$SAMPLARGS --top-p $TOPP"
+[ -n "${TOPK:-}" ] && SAMPLARGS="$SAMPLARGS --top-k $TOPK"
+[ -n "${MINP:-}" ] && SAMPLARGS="$SAMPLARGS --min-p $MINP"
+[ -n "${RPEN:-}" ] && SAMPLARGS="$SAMPLARGS --repeat-penalty $RPEN"
 ADAPT=${ADAPT-512}   # --moe-cache-adapt N : ré-rankage live de la tier semée par le profil ; ADAPT=0 désactive
 ADAPTARGS=""; [ "${ADAPT:-0}" -ge 1 ] 2>/dev/null && ADAPTARGS="--moe-cache-adapt $ADAPT"
 CORSARGS=""; [ -n "${CORS:-}" ] && CORSARGS="--cors-origins $CORS"
@@ -107,7 +130,7 @@ while :; do
     "$BIN" -m "$MODEL" \
         -ngl 99 \
         $MOEARGS \
-        $SPECARGS \
+        $SPECARGS $DRAFTARGS $SAMPLARGS $VARG \
         --host "$HOST" --port "$PORT" \
         -c "$CTX" -fa on $KVARGS -ub 512 \
         -t "${THREADS:-8}" --threads-batch "${THREADS:-8}" --parallel 1 \
