@@ -30,7 +30,7 @@ ENVFILE=${ENVFILE:-$HERE/tools/machine-$TAG.env}   # tools/calibrate.sh $TAG …
 
 LLAMA=$(realpath -m "${LLAMA:-$HERE/llama.cpp}")   # absolus : le serveur ne résout pas le relatif
 BIN=$LLAMA/build/bin/llama-server
-. "$HERE/tools/cache_gen.sh" "$BIN"
+. "$HERE/tools/cache_gen.sh" "$BIN" "${HOST:-0.0.0.0}"
 MODEL=$(realpath -m "${MODEL:?MODEL= requis — choisissez le poids dans le menu niche.sh}")
 PROFILE=$(realpath -m "${PROFILE:-$HERE/tools/prof-$TAG.csv}")
 CTX=${CTX:-8192}
@@ -111,7 +111,7 @@ while :; do
         --host "$HOST" --port "$PORT" \
         -c "$CTX" -fa on $KVARGS -ub 512 \
         -t "${THREADS:-8}" --threads-batch "${THREADS:-8}" --parallel 1 \
-        --metrics --slots --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command \
+        --metrics --slots --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command $TOOLSGATEARGS \
         $EXTRA 2> >(tee "$OOMLOG" >&2) &
     SRV=$!
     wait "$SRV"; rc=$?

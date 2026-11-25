@@ -19,7 +19,7 @@ set -u
 HERE=${HERE:-$(cd "$(dirname "$0")/.." && pwd)}
 LLAMA=$(realpath -m "${LLAMA:-$HERE/llama.cpp}")   # absolus : le serveur ne résout pas le relatif
 BIN=$LLAMA/build/bin/llama-server
-. "$HERE/tools/cache_gen.sh" "$BIN"
+. "$HERE/tools/cache_gen.sh" "$BIN" "${HOST:-0.0.0.0}"
 # choix enregistrés par le menu niche.sh (env exporté gagne, puis settings, puis calibrage machine-qwen.env) :
 SETFILE=${SETFILE:-$HERE/tools/settings-qwen.env}
 [ -f "$SETFILE" ] && source "$SETFILE"
@@ -71,5 +71,5 @@ exec "$BIN" -m "$MODEL" \
     $SPECARGS \
     --host "$HOST" --port "$PORT" \
     -c "$CTX" -fa on $KVARGS -ub 512 \
-    -t 8 --threads-batch 8 --parallel 1 --metrics --slots --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command \
+    -t 8 --threads-batch 8 --parallel 1 --metrics --slots --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command $TOOLSGATEARGS \
     $EXTRA

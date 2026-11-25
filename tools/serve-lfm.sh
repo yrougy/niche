@@ -39,7 +39,7 @@ ENVFILE=${ENVFILE:-$HERE/tools/machine-lfm.env}   # tools/calibrate.sh lfm … �
 
 LLAMA=$(realpath -m "${LLAMA:-$HERE/llama.cpp}")   # absolus : le serveur ne résout pas le relatif
 BIN=$LLAMA/build/bin/llama-server
-. "$HERE/tools/cache_gen.sh" "$BIN"
+. "$HERE/tools/cache_gen.sh" "$BIN" "${HOST:-0.0.0.0}"
 MODEL=$(realpath -m "${MODEL:-$HERE/models/LFM2.5-24B-A2B-UD-IQ3_XXS.gguf}")
 PROFILE=$(realpath -m "${PROFILE:-$HERE/tools/prof-lfm.csv}")   # toujours absolu
 CTX=${CTX:-65536}
@@ -111,7 +111,7 @@ while :; do
         -c "$CTX" -fa on $KVARGS -ub 512 \
         -t "${THREADS:-8}" --threads-batch "${THREADS:-8}" --parallel 1 \
         --temp "$TEMP" --top-k "$TOPK" --repeat-penalty "$RPEN" --metrics --slots \
-        --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command \
+        --ui-mcp-proxy --webui-mcp-proxy $CORSARGS --tools exec_shell_command $TOOLSGATEARGS \
         $EXTRA 2> >(tee "$OOMLOG" >&2) &
     SRV=$!
     wait "$SRV"; rc=$?
